@@ -1273,6 +1273,7 @@ button {
   border: 1px solid rgba(31, 83, 201, 0.1);
   border-radius: 18px;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: space-between;
   min-height: 56px;
@@ -1287,6 +1288,7 @@ button {
   color: var(--primary-strong);
   display: inline-flex;
   gap: 8px;
+  flex: 0 0 auto;
   min-height: 40px;
   padding: 0 14px;
   white-space: nowrap;
@@ -1295,6 +1297,8 @@ button {
 .filePickerName {
   color: var(--muted);
   font-size: 0.92rem;
+  flex: 1 1 180px;
+  min-width: 0;
   line-height: 1.4;
   overflow: hidden;
   padding-right: 8px;
@@ -2375,5 +2379,22 @@ button {
 
   .heroCopy h2 {
     max-width: none;
+  }
+
+  .filePickerButtonRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filePickerButton {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .filePickerName {
+    padding-right: 0;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
