@@ -16,10 +16,7 @@ export function proxy(request: NextRequest) {
   const needsOnboarding = hasSession && onboardingState !== "done";
 
   if (!hasSession && !isPublicRoute) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("message", "Faça login para continuar.");
-    loginUrl.searchParams.set("tone", "error");
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   if (hasSession && publicRoutes.includes(pathname)) {
