@@ -1,6 +1,6 @@
 services:
-  gestao-encomendas:
-    container_name: gestao-encomendas
+  portzap:
+    container_name: portzap
     build:
       context: .
       dockerfile: Dockerfile
@@ -14,5 +14,5 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 3000
     ports:
-      - "3001:3000"
+      - "3003:3000"
     restart: unless-stopped
