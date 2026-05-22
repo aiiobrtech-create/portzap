@@ -4,7 +4,6 @@ import {
   Filter,
   PackagePlus,
   Package,
-  QrCode,
   Settings2,
   Search,
   ShieldCheck,
@@ -19,7 +18,6 @@ import {
 import { DropdownSelect } from "@/app/dropdown-select";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { deliveryStatuses, getDeliveryMetrics, listRecentDeliveries } from "@/lib/deliveries";
-import { getActivePickupTokensForDeliveries } from "@/lib/pickup-tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -141,10 +139,6 @@ export default async function Home({ searchParams }: HomeProps) {
           : "Falha inesperada ao consultar o banco.";
     }
   }
-  const activePickupTokens = await getActivePickupTokensForDeliveries(
-    recentDeliveries.map((delivery) => delivery.id),
-  );
-
   return (
     <main className="pageShell">
       {!activeCondominium ? (
@@ -291,11 +285,7 @@ export default async function Home({ searchParams }: HomeProps) {
               ) : (
                 <div className="deliveryList">
                   {recentDeliveries.map((delivery) => {
-                    const pickupToken = activePickupTokens.get(delivery.id);
-                    const hasActions =
-                      !!pickupToken ||
-                      delivery.status === "pending" ||
-                      delivery.status === "notified";
+                    const hasActions = delivery.status === "pending" || delivery.status === "notified";
 
                     return (
                       <article key={delivery.id} className="deliveryItem">
@@ -327,13 +317,6 @@ export default async function Home({ searchParams }: HomeProps) {
 
                         {hasActions ? (
                           <div className="deliveryActions">
-                            {pickupToken ? (
-                              <Link href={`/q/${pickupToken.token_value}`} className="secondaryLinkButton">
-                                <QrCode size={16} />
-                                Exibir QR
-                              </Link>
-                            ) : null}
-
                             {delivery.status === "pending" ? (
                               <form action={markDeliveryNotified}>
                                 <input type="hidden" name="id" value={delivery.id} />

@@ -8,8 +8,8 @@ type SendDeliveryEmailInput = {
   apartment: string;
   carrier?: string;
   description?: string;
-  pickupUrl?: string;
-  photoUrl?: string | null;
+  pickupCode?: string;
+  qrImageUrl?: string | null;
 };
 
 function escapeHtml(value: string) {
@@ -36,8 +36,7 @@ export async function sendDeliveryEmail(input: SendDeliveryEmailInput) {
     `Unidade: ${input.apartment}`,
     input.carrier ? `Transportadora: ${input.carrier}` : null,
     input.description ? `Item: ${input.description}` : null,
-    input.pickupUrl ? `Link/QR de retirada: ${input.pickupUrl}` : null,
-    input.photoUrl ? `Foto da encomenda: ${input.photoUrl}` : null,
+    input.pickupCode ? `Código manual: ${input.pickupCode}` : null,
   ].filter(Boolean);
   const htmlDetails = details.map((detail) => `<li>${escapeHtml(String(detail))}</li>`).join("");
 
@@ -54,14 +53,17 @@ export async function sendDeliveryEmail(input: SendDeliveryEmailInput) {
       html: [
         `<p>Olá, ${escapeHtml(input.residentName)}.</p>`,
         "<p>Sua encomenda chegou na portaria.</p>",
+        input.qrImageUrl
+          ? `<p><img src="${escapeHtml(input.qrImageUrl)}" alt="QR code de retirada" style="max-width:280px;width:100%;height:auto;display:block;border:0;" /></p>`
+          : "",
         `<ul>${htmlDetails}</ul>`,
-        "<p>Apresente o QR ou código no momento da retirada.</p>",
+        "<p>Apresente o QR ou use o código manual no momento da retirada.</p>",
       ].join(""),
       text: [
         `Olá, ${input.residentName}.`,
         "Sua encomenda chegou na portaria.",
         ...details.map(String),
-        "Apresente o QR ou código no momento da retirada.",
+        "Apresente o QR ou use o código manual no momento da retirada.",
       ].join("\n"),
     }),
   });

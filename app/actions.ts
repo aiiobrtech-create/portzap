@@ -16,7 +16,7 @@ import { buildPickupLinkForDelivery, cancelActivePickupTokensForDelivery, consum
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { deliveryStatuses, type DeliveryStatus } from "@/lib/deliveries";
 import { sanitizeStoredPhone } from "@/lib/input-formatting";
-import { extractPickupTokenFromInput } from "@/lib/pickups";
+import { buildPickupValidationUrl, buildQrImageUrl, extractPickupTokenFromInput } from "@/lib/pickups";
 
 const createDeliverySchema = z.object({
   residentId: z.string().uuid("Morador invalido.").optional().or(z.literal("")),
@@ -104,6 +104,8 @@ type NotificationPayload = {
   normalizedPhone: string;
   message: string;
   response: unknown;
+  deliveryMode?: "image" | "text";
+  fallbackError?: string;
 };
 
 type NotificationChannel = "whatsapp" | "email";
@@ -302,13 +304,13 @@ function buildNotificationMessage(input: {
   apartment: string;
   carrier?: string;
   description?: string;
-  pickupUrl?: string;
   photoUrl?: string | null;
+  pickupCode?: string | null;
 }) {
   const detail = input.description ? ` Item: ${input.description}.` : "";
   const carrier = input.carrier ? ` Transportadora: ${input.carrier}.` : "";
-  const pickup = input.pickupUrl ? ` Apresente este QR na retirada: ${input.pickupUrl}.` : "";
-  const photo = input.photoUrl ? ` Foto da encomenda: ${input.photoUrl}.` : "";
+  const photo = input.photoUrl ? " QR da retirada anexado." : "";
+  const code = input.pickupCode ? ` Código manual: ${input.pickupCode}.` : "";
 
   return [
     `Ola, ${input.residentName}.`,
@@ -316,7 +318,7 @@ function buildNotificationMessage(input: {
     carrier,
     detail,
     photo,
-    pickup,
+    code,
     "Retire quando for conveniente.",
   ]
     .join(" ")
@@ -330,27 +332,51 @@ async function notifyResident(input: {
   apartment: string;
   carrier?: string;
   description?: string;
-  pickupUrl?: string;
   photoUrl?: string | null;
+  pickupCode?: string | null;
 }) {
   const normalizedPhone = normalizePhone(input.residentPhone);
   const message = buildNotificationMessage(input);
   const evolution = new EvolutionClient();
-  const response = input.photoUrl
-    ? await evolution.sendImage({
+  let response: unknown;
+  let deliveryMode: "image" | "text" = "text";
+
+  if (input.photoUrl) {
+    try {
+      response = await evolution.sendImage({
         phone: normalizedPhone,
         imageUrl: input.photoUrl,
         caption: message,
-      })
-    : await evolution.sendText({
-        phone: normalizedPhone,
-        message,
       });
+      deliveryMode = "image";
+    } catch (imageError) {
+      const fallbackMessage = message;
+      response = await evolution.sendText({
+        phone: normalizedPhone,
+        message: fallbackMessage,
+      });
+      deliveryMode = "text";
+
+      return {
+        normalizedPhone,
+        message: fallbackMessage,
+        response,
+        deliveryMode,
+        fallbackError: imageError instanceof Error ? imageError.message : "Falha inesperada ao enviar imagem.",
+      } satisfies NotificationPayload;
+    }
+  } else {
+    response = await evolution.sendText({
+      phone: normalizedPhone,
+      message,
+    });
+  }
 
   return {
     normalizedPhone,
     message,
     response,
+    deliveryMode,
   } satisfies NotificationPayload;
 }
 
@@ -529,10 +555,6 @@ async function uploadDeliveryPhoto(input: {
   return data.publicUrl;
 }
 
-function extractDeliveryPhotoUrl(notes: string | null | undefined) {
-  return notes?.match(/Foto:\s*(https?:\/\/\S+)/)?.[1] ?? null;
-}
-
 async function appendInternalDeliveryNote(input: {
   deliveryId: string;
   condominiumId: string;
@@ -598,8 +620,8 @@ async function sendEmailNotificationIfPossible(input: {
   apartment: string;
   carrier?: string | null;
   description?: string | null;
-  pickupUrl?: string;
-  photoUrl?: string | null;
+  pickupCode?: string | null;
+  qrImageUrl?: string | null;
 }) {
   if (!input.residentEmail) {
     return;
@@ -612,8 +634,8 @@ async function sendEmailNotificationIfPossible(input: {
       apartment: input.apartment,
       carrier: input.carrier ?? undefined,
       description: input.description ?? undefined,
-      pickupUrl: input.pickupUrl,
-      photoUrl: input.photoUrl,
+      pickupCode: input.pickupCode ?? undefined,
+      qrImageUrl: input.qrImageUrl ?? undefined,
     });
 
     await createNotificationAttemptEntry({
@@ -624,8 +646,8 @@ async function sendEmailNotificationIfPossible(input: {
       status: "sent",
       requestPayload: {
         to: input.residentEmail,
-        pickupUrl: input.pickupUrl,
-        photoUrl: input.photoUrl,
+        pickupCode: input.pickupCode,
+        qrImageUrl: input.qrImageUrl,
       },
       responsePayload: response && typeof response === "object"
         ? (response as Record<string, unknown>)
@@ -640,8 +662,8 @@ async function sendEmailNotificationIfPossible(input: {
       status: "failed",
       requestPayload: {
         to: input.residentEmail,
-        pickupUrl: input.pickupUrl,
-        photoUrl: input.photoUrl,
+        pickupCode: input.pickupCode,
+        qrImageUrl: input.qrImageUrl,
       },
       errorMessage:
         emailError instanceof Error
@@ -805,7 +827,8 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
     }
 
     const photoFile = formData.get("photo");
-    let deliveryPhotoUrl: string | null = null;
+    let qrImageUrl: string | null = null;
+    let pickupCode: string | null = null;
     const { data, error } = await supabase
       .from("deliveries")
       .insert({
@@ -841,7 +864,6 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
       });
 
       if (photoUrl) {
-        deliveryPhotoUrl = photoUrl;
         const notesWithPhoto = [parsed.internalNotes?.trim(), `Foto: ${photoUrl}`]
           .filter(Boolean)
           .join("\n");
@@ -876,6 +898,8 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           createdBy: user.id,
           baseUrl,
         });
+        pickupCode = pickupLink.tokenValue;
+        qrImageUrl = buildQrImageUrl(buildPickupValidationUrl(baseUrl, pickupLink.tokenValue));
 
         const notification = await notifyResident({
           residentName: notificationResidentName,
@@ -883,8 +907,8 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           apartment: resolvedApartment,
           carrier: parsed.carrier,
           description: parsed.description,
-          pickupUrl: pickupLink.residentUrl,
-          photoUrl: deliveryPhotoUrl,
+          photoUrl: qrImageUrl,
+          pickupCode,
         });
 
         await createNotificationAttemptEntry({
@@ -894,7 +918,10 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           requestPayload: {
             phone: notification.normalizedPhone,
             message: notification.message,
-            photoUrl: deliveryPhotoUrl,
+            qrImageUrl,
+            pickupCode,
+            deliveryMode: notification.deliveryMode ?? "text",
+            fallbackError: notification.fallbackError ?? null,
           },
           responsePayload:
             notification.response && typeof notification.response === "object"
@@ -920,8 +947,8 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           apartment: resolvedApartment,
           carrier: parsed.carrier,
           description: parsed.description,
-          pickupUrl: pickupLink.residentUrl,
-          photoUrl: deliveryPhotoUrl,
+          pickupCode,
+          qrImageUrl,
         });
 
         await createStatusHistoryEntry({
@@ -943,13 +970,15 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           requestPayload: {
             phone: resolvedResidentPhone,
             message: buildNotificationMessage({
-            residentName: resolvedResidentName,
+              residentName: resolvedResidentName,
               apartment: resolvedApartment,
               carrier: parsed.carrier,
               description: parsed.description,
-              photoUrl: deliveryPhotoUrl,
+              photoUrl: qrImageUrl,
+              pickupCode,
             }),
-            photoUrl: deliveryPhotoUrl,
+            qrImageUrl,
+            pickupCode,
           },
           errorMessage:
             notifyError instanceof Error
@@ -1019,6 +1048,8 @@ export async function markDeliveryNotified(formData: FormData) {
     }
 
     let pickupLink: Awaited<ReturnType<typeof buildPickupLinkForDelivery>> | null = null;
+    let qrImageUrl: string | null = null;
+    let pickupCode: string | null = null;
     const deliveryRecord = data as typeof data & {
       internal_notes?: string | null;
       residents?: { email: string | null } | Array<{ email: string | null }> | null;
@@ -1027,7 +1058,6 @@ export async function markDeliveryNotified(formData: FormData) {
       ? deliveryRecord.residents[0]
       : deliveryRecord.residents;
     const residentEmail = residentRecord?.email?.trim() || null;
-    const deliveryPhotoUrl = extractDeliveryPhotoUrl(deliveryRecord.internal_notes);
 
     try {
       const baseUrl = await getAppBaseUrl();
@@ -1037,6 +1067,8 @@ export async function markDeliveryNotified(formData: FormData) {
         createdBy: user.id,
         baseUrl,
       });
+      pickupCode = pickupLink.tokenValue;
+      qrImageUrl = buildQrImageUrl(buildPickupValidationUrl(baseUrl, pickupLink.tokenValue));
 
       const notification = await notifyResident({
         residentName: data.resident_name,
@@ -1044,8 +1076,8 @@ export async function markDeliveryNotified(formData: FormData) {
         apartment: data.apartment,
         carrier: data.carrier ?? undefined,
         description: data.description ?? undefined,
-        pickupUrl: pickupLink.residentUrl,
-        photoUrl: deliveryPhotoUrl,
+        photoUrl: qrImageUrl,
+        pickupCode,
       });
 
       await createNotificationAttemptEntry({
@@ -1055,7 +1087,8 @@ export async function markDeliveryNotified(formData: FormData) {
         requestPayload: {
           phone: notification.normalizedPhone,
           message: notification.message,
-          photoUrl: deliveryPhotoUrl,
+          qrImageUrl,
+          pickupCode,
         },
         responsePayload:
           notification.response && typeof notification.response === "object"
@@ -1075,9 +1108,10 @@ export async function markDeliveryNotified(formData: FormData) {
             apartment: data.apartment,
             carrier: data.carrier ?? undefined,
             description: data.description ?? undefined,
-            photoUrl: deliveryPhotoUrl,
+            photoUrl: null,
+            pickupCode,
           }),
-          photoUrl: deliveryPhotoUrl,
+          pickupCode,
         },
         errorMessage:
           notifyError instanceof Error
@@ -1114,8 +1148,8 @@ export async function markDeliveryNotified(formData: FormData) {
       apartment: data.apartment,
       carrier: data.carrier,
       description: data.description,
-      pickupUrl: pickupLink?.residentUrl,
-      photoUrl: deliveryPhotoUrl,
+      pickupCode,
+      qrImageUrl,
     });
 
     revalidatePath("/");

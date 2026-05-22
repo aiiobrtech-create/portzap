@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 import { validatePickupToken } from "@/app/actions";
 import { FilePicker } from "@/app/file-picker";
 
@@ -8,23 +9,14 @@ type ScanPanelProps = {
   initialToken?: string;
 };
 
-type BarcodeDetectorLike = {
-  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
-};
-
-declare global {
-  interface Window {
-    BarcodeDetector?: new (options: { formats: string[] }) => BarcodeDetectorLike;
-  }
-}
-
 export function ScanPanel({ initialToken = "" }: ScanPanelProps) {
   const [tokenValue, setTokenValue] = useState(initialToken);
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const timeoutRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isScanning) {
@@ -32,12 +24,11 @@ export function ScanPanel({ initialToken = "" }: ScanPanelProps) {
     }
 
     let cancelled = false;
-    let detector: BarcodeDetectorLike | null = null;
 
     const stopScanner = () => {
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
 
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -45,30 +36,38 @@ export function ScanPanel({ initialToken = "" }: ScanPanelProps) {
     };
 
     const scanFrame = async () => {
-      if (cancelled || !videoRef.current || !detector) {
+      if (cancelled || !videoRef.current || !canvasRef.current) {
         return;
       }
 
-      try {
-        const results = await detector.detect(videoRef.current);
-        const rawValue = results[0]?.rawValue?.trim();
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
 
-        if (rawValue) {
-          setTokenValue(rawValue);
-          setIsScanning(false);
-          stopScanner();
-          return;
-        }
-      } catch (error) {
-        setScannerError(error instanceof Error ? error.message : "Falha ao ler o QR pela câmera.");
+      if (!context || video.videoWidth === 0 || video.videoHeight === 0) {
+        rafRef.current = window.requestAnimationFrame(() => {
+          void scanFrame();
+        });
+        return;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const decoded = jsQR(imageData.data, imageData.width, imageData.height);
+
+      if (decoded?.data) {
+        setTokenValue(decoded.data.trim());
         setIsScanning(false);
         stopScanner();
         return;
       }
 
-      timeoutRef.current = window.setTimeout(() => {
+      rafRef.current = window.requestAnimationFrame(() => {
         void scanFrame();
-      }, 450);
+      });
     };
 
     const startScanner = async () => {
@@ -77,14 +76,6 @@ export function ScanPanel({ initialToken = "" }: ScanPanelProps) {
         setIsScanning(false);
         return;
       }
-
-      if (!window.BarcodeDetector) {
-        setScannerError("Este navegador não suporta leitura nativa de QR pela câmera.");
-        setIsScanning(false);
-        return;
-      }
-
-      detector = new window.BarcodeDetector({ formats: ["qr_code"] });
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -165,6 +156,7 @@ export function ScanPanel({ initialToken = "" }: ScanPanelProps) {
       {isScanning ? (
         <div className="scannerCard">
           <video ref={videoRef} className="scannerVideo" playsInline muted />
+          <canvas ref={canvasRef} hidden aria-hidden="true" />
           <p className="authMuted">Aponte a câmera para o QR exibido no celular do morador.</p>
         </div>
       ) : null}

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { QrCode } from "lucide-react";
 import { ScanPanel } from "@/app/retirada/scan-panel";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { listRecentDeliveries } from "@/lib/deliveries";
@@ -71,7 +70,7 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
           <div className="panel">
             <div className="panelHeader">
               <div>
-                <h2>QRs ativos na fila</h2>
+                <h2>Entregas prontas para validação</h2>
               </div>
             </div>
 
@@ -112,9 +111,6 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
                     return (
                       <article key={delivery.id} className="panel residentCard">
                         <div className="residentCardTop">
-                          <span className="metricIcon metricAccentBlue">
-                            <QrCode size={16} />
-                          </span>
                           <span className="residentUnit">Unidade {delivery.apartment}</span>
                         </div>
                         <h2>{delivery.resident_name}</h2>
@@ -127,11 +123,6 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
                               timeStyle: "short",
                             }).format(new Date(pickup.expires_at))}
                           </span>
-                        </div>
-                        <div className="inlineFormActions">
-                          <Link href={`/q/${pickup.token_value}`} className="secondaryLinkButton">
-                            Abrir QR do morador
-                          </Link>
                         </div>
                       </article>
                     );

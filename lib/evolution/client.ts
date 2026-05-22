@@ -11,6 +11,17 @@ type SendImageInput = {
   caption?: string;
 };
 
+function getFileNameFromUrl(imageUrl: string) {
+  try {
+    const url = new URL(imageUrl);
+    const fileName = url.pathname.split("/").filter(Boolean).pop();
+
+    return fileName && fileName.includes(".") ? fileName : "foto.jpg";
+  } catch {
+    return "foto.jpg";
+  }
+}
+
 export class EvolutionClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
@@ -32,11 +43,23 @@ export class EvolutionClient {
   }
 
   async sendImage({ phone, imageUrl, caption }: SendImageInput) {
+    const imageResponse = await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
+      throw new Error(`Falha ao carregar a imagem para envio: ${imageResponse.status}`);
+    }
+
+    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const media = imageBuffer.toString("base64");
+
     return this.request("/message/sendMedia", {
       number: phone,
       mediatype: "image",
-      media: imageUrl,
+      mimetype: contentType,
+      media,
       caption,
+      fileName: getFileNameFromUrl(imageUrl),
       delay: 500,
     });
   }
