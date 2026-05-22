@@ -100,11 +100,6 @@ const validatePickupTokenSchema = z.object({
   token: z.string().trim().min(1, "Informe o QR ou o código de retirada."),
 });
 
-const pickupUnitBatchSchema = z.object({
-  condominiumId: z.string().uuid("Condominio invalido."),
-  apartment: z.string().trim().min(1, "Informe a unidade.").max(20, "Unidade invalida."),
-});
-
 type NotificationPayload = {
   normalizedPhone: string;
   message: string;
@@ -135,6 +130,8 @@ export type DeliveryActionState = {
 };
 
 const maxDeliveryPhotoBytes = 5 * 1024 * 1024;
+const deliveryPhotosBucketName = process.env.SUPABASE_DELIVERY_PHOTOS_BUCKET?.trim() || "delivery-photos";
+let deliveryPhotosBucketReady: Promise<void> | null = null;
 
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -179,6 +176,76 @@ function buildHomeRedirect(input: {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Falha inesperada na operacao.";
+}
+
+function isStorageNotFoundError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    message?: string;
+    status?: number;
+    statusCode?: string;
+  };
+
+  return (
+    candidate.status === 404 ||
+    candidate.statusCode === "404" ||
+    /bucket not found|not found/i.test(candidate.message ?? "")
+  );
+}
+
+function isStorageConflictError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    message?: string;
+    status?: number;
+    statusCode?: string;
+  };
+
+  return (
+    candidate.status === 409 ||
+    candidate.statusCode === "409" ||
+    /already exists|conflict/i.test(candidate.message ?? "")
+  );
+}
+
+async function ensureDeliveryPhotosBucket() {
+  if (!deliveryPhotosBucketReady) {
+    deliveryPhotosBucketReady = (async () => {
+      const supabase = createSupabaseAdminClient();
+      const { error } = await supabase.storage.getBucket(deliveryPhotosBucketName);
+
+      if (!error) {
+        return;
+      }
+
+      if (!isStorageNotFoundError(error)) {
+        throw new Error(`Falha ao verificar bucket de fotos "${deliveryPhotosBucketName}": ${error.message}`);
+      }
+
+      const { error: createError } = await supabase.storage.createBucket(deliveryPhotosBucketName, {
+        public: true,
+        fileSizeLimit: maxDeliveryPhotoBytes,
+        allowedMimeTypes: ["image/*"],
+      });
+
+      if (createError && !isStorageConflictError(createError)) {
+        throw new Error(
+          `Falha ao criar bucket de fotos "${deliveryPhotosBucketName}": ${createError.message}`,
+        );
+      }
+    })().catch((error) => {
+      deliveryPhotosBucketReady = null;
+      throw error;
+    });
+  }
+
+  await deliveryPhotosBucketReady;
 }
 
 function getTowerToken(index: number, naming: "letters" | "numbers") {
@@ -443,9 +510,10 @@ async function uploadDeliveryPhoto(input: {
   const filePurpose = input.purpose ?? "package";
   const filePath = `${input.condominiumId}/${input.deliveryId}-${filePurpose}-${crypto.randomUUID()}.${fileExtension}`;
   const supabase = createSupabaseAdminClient();
+  await ensureDeliveryPhotosBucket();
   const fileBytes = Buffer.from(await input.file.arrayBuffer());
   const { error } = await supabase.storage
-    .from("delivery-photos")
+    .from(deliveryPhotosBucketName)
     .upload(filePath, fileBytes, {
       cacheControl: "3600",
       contentType: input.file.type || "image/jpeg",
@@ -456,7 +524,7 @@ async function uploadDeliveryPhoto(input: {
     throw new Error(`Falha ao enviar foto da encomenda: ${error.message}`);
   }
 
-  const { data } = supabase.storage.from("delivery-photos").getPublicUrl(filePath);
+  const { data } = supabase.storage.from(deliveryPhotosBucketName).getPublicUrl(filePath);
 
   return data.publicUrl;
 }

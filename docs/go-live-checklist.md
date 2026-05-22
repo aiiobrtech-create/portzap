@@ -3,7 +3,7 @@
 ## Banco e storage
 
 - aplicar `supabase-schema.sql` no ambiente alvo
-- confirmar existência e permissão do bucket `delivery-photos`
+- confirmar existência e permissão do bucket configurado em `SUPABASE_DELIVERY_PHOTOS_BUCKET` ou usar o padrão `delivery-photos`
 - validar índices e constraints das tabelas novas
 - criar backup lógico antes da implantação
 
@@ -12,10 +12,11 @@
 - preencher `NEXT_PUBLIC_SUPABASE_URL`
 - preencher `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - preencher `SUPABASE_SERVICE_ROLE_KEY`
-- preencher `EVOLUTION_BASE_URL`
+- preencher `EVOLUTION_BASE_URL` com a raiz da API Evolution, por exemplo `https://seu-dominio-ou-proxy`
 - preencher `EVOLUTION_API_KEY`
 - preencher `EVOLUTION_INSTANCE`
-- preencher `EVOLUTION_WEBHOOK_SECRET` e configurar a Evolution para chamar `/api/evolution/status`
+- preencher `EVOLUTION_WEBHOOK_SECRET` se quiser validar o webhook de status
+- configurar a Evolution para chamar `POST /api/evolution/status` neste app
 - preencher `RESEND_API_KEY`
 - preencher `EMAIL_FROM`
 

@@ -166,13 +166,14 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
           <span>Status inicial</span>
           <DropdownSelect
             name="status"
-            defaultValue={values?.status ?? "pending"}
+            defaultValue={values?.status ?? "notified"}
             options={[
               { value: "pending", label: "Pendente" },
               { value: "notified", label: "Avisado" },
               { value: "cancelled", label: "Cancelado" },
             ]}
           />
+          <small className="fieldHint">Avisado envia o WhatsApp com o QR/código de retirada automaticamente.</small>
         </label>
       </div>
 

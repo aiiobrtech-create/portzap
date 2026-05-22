@@ -4,7 +4,13 @@ const serverSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  EVOLUTION_BASE_URL: z.string().url(),
+  EVOLUTION_BASE_URL: z
+    .string()
+    .url()
+    .refine(
+      (value) => !/\/(message|webhook|instance|settings)\//i.test(value.replace(/\/$/, "")),
+      "EVOLUTION_BASE_URL deve apontar para a raiz da API Evolution, sem caminho de endpoint.",
+    ),
   EVOLUTION_API_KEY: z.string().min(1),
   EVOLUTION_INSTANCE: z.string().min(1),
   RESEND_API_KEY: z.string().min(1).optional(),

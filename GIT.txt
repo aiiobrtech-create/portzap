@@ -1,0 +1,9 @@
+git status
+git add .
+git commit -m "correção"
+git pull origin master
+
+
+cd /opt/portzap
+git pull origin master
+docker compose --env-file .env.production -f docker-compose.vps.yml up -d --build
