@@ -166,9 +166,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           ) : canManageOperators ? (
             <form action={createOperatorForCondominium} className="deliveryForm">
-              <p className="helperText">
-                Cada operador pode ficar vinculado a apenas um condomínio.
-              </p>
               <input type="hidden" name="condominiumId" value={activeCondominium.id} />
               <label className="field">
                 <span>Nome completo</span>

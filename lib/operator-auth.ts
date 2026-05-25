@@ -204,52 +204,57 @@ export async function countOperatorUsers() {
 }
 
 export const getCurrentOperatorContext = cache(async (): Promise<OperatorContext | null> => {
-  const supabase = await createSupabaseServerClient();
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
 
-  if (authError || !authData.user) {
+    if (authError || !authData.user) {
+      return null;
+    }
+
+    const profile = await ensureOperatorProfileForAuthUser({
+      id: authData.user.id,
+      email: authData.user.email ?? null,
+      user_metadata: authData.user.user_metadata,
+    });
+
+    if (!profile.is_active) {
+      return null;
+    }
+
+    const adminClient = createSupabaseAdminClient();
+    const { data: memberships, error: membershipError } = await adminClient
+      .from("operator_memberships")
+      .select("id, role, is_default, condominiums!inner(id, name, slug, contact_phone, is_active)")
+      .eq("user_id", profile.id)
+      .eq("is_active", true);
+
+    if (membershipError) {
+      throw new Error(`Falha ao carregar vínculos do operador: ${membershipError.message}`);
+    }
+
+    const authorizedCondominiums = mapMemberships(memberships ?? []);
+    if (authorizedCondominiums.length === 0) {
+      return null;
+    }
+
+    const cookieStore = await cookies();
+    const requestedCondominiumId = cookieStore.get(ACTIVE_CONDOMINIUM_COOKIE_NAME)?.value;
+    const activeCondominium =
+      authorizedCondominiums.find((membership) => membership.id === requestedCondominiumId) ??
+      authorizedCondominiums.find((membership) => membership.isDefault) ??
+      authorizedCondominiums[0] ??
+      null;
+
+    return {
+      user: profile,
+      memberships: authorizedCondominiums,
+      activeCondominium,
+    };
+  } catch (error) {
+    console.error("Falha ao resolver contexto do operador:", error);
     return null;
   }
-
-  const profile = await ensureOperatorProfileForAuthUser({
-    id: authData.user.id,
-    email: authData.user.email ?? null,
-    user_metadata: authData.user.user_metadata,
-  });
-
-  if (!profile.is_active) {
-    return null;
-  }
-
-  const adminClient = createSupabaseAdminClient();
-  const { data: memberships, error: membershipError } = await adminClient
-    .from("operator_memberships")
-    .select("id, role, is_default, condominiums!inner(id, name, slug, contact_phone, is_active)")
-    .eq("user_id", profile.id)
-    .eq("is_active", true);
-
-  if (membershipError) {
-    throw new Error(`Falha ao carregar vínculos do operador: ${membershipError.message}`);
-  }
-
-  const authorizedCondominiums = mapMemberships(memberships ?? []);
-  if (authorizedCondominiums.length === 0) {
-    return null;
-  }
-
-  const cookieStore = await cookies();
-  const requestedCondominiumId = cookieStore.get(ACTIVE_CONDOMINIUM_COOKIE_NAME)?.value;
-  const activeCondominium =
-    authorizedCondominiums.find((membership) => membership.id === requestedCondominiumId) ??
-    authorizedCondominiums.find((membership) => membership.isDefault) ??
-    authorizedCondominiums[0] ??
-    null;
-
-  return {
-    user: profile,
-    memberships: authorizedCondominiums,
-    activeCondominium,
-  };
 });
 
 export async function requireOperatorContext() {

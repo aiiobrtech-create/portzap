@@ -1,0 +1,4 @@
+interface:
+  display_name: "Awesome Design MD"
+  short_description: "Use DESIGN.md examples to match brand UI"
+  default_prompt: "Use $awesome-design-md to find and apply a matching DESIGN.md from the Awesome Design MD catalog for this UI."

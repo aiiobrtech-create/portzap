@@ -4,6 +4,8 @@ import { AppShell } from "@/app/app-shell";
 import { getCurrentOperatorContext } from "@/lib/operator-auth";
 import "./globals.css";
 
+export const dynamic = "force-dynamic";
+
 const sora = Sora({
   subsets: ["latin"],
   variable: "--font-display",
