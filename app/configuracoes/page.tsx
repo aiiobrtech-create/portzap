@@ -85,36 +85,72 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       </section>
 
       <section className="contentGrid residentsContentGrid settingsSplitGrid">
-        <div className="panel">
-          <div className="panelHeader">
-            <div>
-              <h2>Operadores do condomínio ativo</h2>
+        <div className="stackGrid">
+          <div className="panel">
+            <div className="panelHeader">
+              <div>
+                <h2>Operadores do condomínio ativo</h2>
+              </div>
             </div>
+
+            {!activeCondominium ? (
+              <div className="emptyState">
+                <strong>Nenhum condomínio ativo</strong>
+              </div>
+            ) : activeOperators.length === 0 ? (
+              <div className="emptyState">
+                <strong>Nenhum operador vinculado</strong>
+              </div>
+            ) : (
+              <div className="stackGrid settingsGrid">
+                {activeOperators.map((operator) => (
+                  <article key={operator.membership_id} className="panel settingsCard">
+                    <span className="metricIcon metricAccentBlue">
+                      <ShieldCheck size={16} />
+                    </span>
+                    <h2>{operator.user.full_name}</h2>
+                    <p>{operator.user.email}</p>
+                    <p>Papel: {operator.role === "admin" ? "Administrador" : "Operador"}</p>
+                    {operator.is_default ? <span className="inlineMutedPill">Padrão</span> : null}
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
 
-          {!activeCondominium ? (
-            <div className="emptyState">
-              <strong>Nenhum condomínio ativo</strong>
+          <section className="panel">
+            <div className="panelHeader">
+              <div>
+                <h2>Bases cadastradas</h2>
+              </div>
             </div>
-          ) : activeOperators.length === 0 ? (
-            <div className="emptyState">
-              <strong>Nenhum operador vinculado</strong>
-            </div>
-          ) : (
-            <div className="stackGrid settingsGrid">
-              {activeOperators.map((operator) => (
-                <article key={operator.membership_id} className="panel settingsCard">
-                  <span className="metricIcon metricAccentBlue">
-                    <ShieldCheck size={16} />
-                  </span>
-                  <h2>{operator.user.full_name}</h2>
-                  <p>{operator.user.email}</p>
-                  <p>Papel: {operator.role === "admin" ? "Administrador" : "Operador"}</p>
-                  {operator.is_default ? <span className="inlineMutedPill">Padrão</span> : null}
-                </article>
-              ))}
-            </div>
-          )}
+
+            {condominiums.length === 0 ? (
+              <div className="emptyState">
+                <strong>Nenhum condomínio cadastrado</strong>
+              </div>
+            ) : (
+              <div className="stackGrid settingsGrid">
+                {condominiums.map((condominium) => (
+                  <article key={condominium.id} className="panel settingsCard">
+                    <span className="metricIcon metricAccentBlue">
+                      <Database size={16} />
+                    </span>
+                    <h2>{condominium.name}</h2>
+                    <p>{condominium.slug ? `Slug: ${condominium.slug}` : "Slug não definido"}</p>
+                    <p>
+                      {condominium.contact_phone
+                        ? `Contato: ${condominium.contact_phone}`
+                        : "Contato do condomínio não informado"}
+                    </p>
+                    {condominium.id === activeCondominium?.id ? (
+                      <span className="inlineWarning">Ativo na operação</span>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
 
         <div className="panel">
@@ -176,40 +212,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           )}
         </div>
-      </section>
-
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Bases cadastradas</h2>
-          </div>
-        </div>
-
-        {condominiums.length === 0 ? (
-          <div className="emptyState">
-            <strong>Nenhum condomínio cadastrado</strong>
-          </div>
-        ) : (
-          <div className="stackGrid settingsGrid">
-            {condominiums.map((condominium) => (
-              <article key={condominium.id} className="panel settingsCard">
-                <span className="metricIcon metricAccentBlue">
-                  <Database size={16} />
-                </span>
-                <h2>{condominium.name}</h2>
-                <p>{condominium.slug ? `Slug: ${condominium.slug}` : "Slug não definido"}</p>
-                <p>
-                  {condominium.contact_phone
-                    ? `Contato: ${condominium.contact_phone}`
-                    : "Contato do condomínio não informado"}
-                </p>
-                {condominium.id === activeCondominium?.id ? (
-                  <span className="inlineWarning">Ativo na operação</span>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        )}
       </section>
 
     </main>
