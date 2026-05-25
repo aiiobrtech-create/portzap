@@ -1,7 +1,5 @@
 import { Database, ShieldCheck } from "lucide-react";
-import { createCondominium } from "@/app/actions";
 import { DropdownSelect } from "@/app/dropdown-select";
-import { PhoneInput, SlugInput } from "@/app/form-fields";
 import { createOperatorForCondominium } from "@/app/security-actions";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { requireOperatorContext } from "@/lib/operator-auth";
@@ -24,7 +22,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     resolveCondominiumContext(),
     requireOperatorContext(),
   ]);
-  const canManageCondominiums = operatorContext.memberships.some((membership) => membership.role === "admin");
   const activeCondominiumMembership = operatorContext.memberships.find(
     (membership) => membership.id === activeCondominium?.id,
   );
@@ -82,43 +79,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                     : "Contato do condomínio não informado"}
                 </p>
               </article>
-            </div>
-          )}
-        </div>
-
-        <div className="panel">
-          <div className="panelHeader">
-            <div>
-              <h2>Novo condomínio</h2>
-            </div>
-          </div>
-
-          {canManageCondominiums ? (
-            <form action={createCondominium} className="deliveryForm">
-              <label className="field">
-                <span>Nome do condomínio</span>
-                <input name="name" placeholder="Ex.: Condomínio Parque Central" maxLength={120} required />
-              </label>
-
-              <div className="fieldRow">
-                <label className="field">
-                  <span>Slug operacional</span>
-                  <SlugInput name="slug" placeholder="Ex.: condominio-parque-central" required />
-                </label>
-
-                <label className="field">
-                  <span>Telefone de contato</span>
-                  <PhoneInput name="contactPhone" placeholder="Ex.: (11) 4000-1234" />
-                </label>
-              </div>
-
-              <button className="primaryButton" type="submit">
-                Cadastrar condomínio
-              </button>
-            </form>
-          ) : (
-            <div className="emptyState">
-              <strong>Permissão insuficiente</strong>
             </div>
           )}
         </div>
