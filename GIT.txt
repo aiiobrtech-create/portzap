@@ -1,7 +1,7 @@
 git status
 git add .
-git commit -m "correção"
-git pull origin master
+git commit -m "leitura qr"
+git push origin master
 
 
 cd /opt/portzap

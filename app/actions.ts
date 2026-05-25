@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getAppBaseUrl } from "@/lib/app-url";
-import { sendDeliveryEmail } from "@/lib/email/client";
 import { EvolutionClient } from "@/lib/evolution/client";
 import {
   buildOperatorLabel,
@@ -108,7 +107,7 @@ type NotificationPayload = {
   fallbackError?: string;
 };
 
-type NotificationChannel = "whatsapp" | "email";
+type NotificationChannel = "whatsapp";
 type NotificationAttemptStatus = "pending" | "sent" | "delivered" | "read" | "failed";
 export type DeliveryFormValues = {
   residentId: string;
@@ -613,66 +612,6 @@ async function uploadPickupProofPhoto(input: {
   return photoUrl;
 }
 
-async function sendEmailNotificationIfPossible(input: {
-  deliveryId: string;
-  residentEmail?: string | null;
-  residentName: string;
-  apartment: string;
-  carrier?: string | null;
-  description?: string | null;
-  pickupCode?: string | null;
-  qrImageUrl?: string | null;
-}) {
-  if (!input.residentEmail) {
-    return;
-  }
-
-  try {
-    const response = await sendDeliveryEmail({
-      to: input.residentEmail,
-      residentName: input.residentName,
-      apartment: input.apartment,
-      carrier: input.carrier ?? undefined,
-      description: input.description ?? undefined,
-      pickupCode: input.pickupCode ?? undefined,
-      qrImageUrl: input.qrImageUrl ?? undefined,
-    });
-
-    await createNotificationAttemptEntry({
-      deliveryId: input.deliveryId,
-      channel: "email",
-      provider: "resend",
-      target: input.residentEmail,
-      status: "sent",
-      requestPayload: {
-        to: input.residentEmail,
-        pickupCode: input.pickupCode,
-        qrImageUrl: input.qrImageUrl,
-      },
-      responsePayload: response && typeof response === "object"
-        ? (response as Record<string, unknown>)
-        : { raw: response },
-    });
-  } catch (emailError) {
-    await createNotificationAttemptEntry({
-      deliveryId: input.deliveryId,
-      channel: "email",
-      provider: "resend",
-      target: input.residentEmail,
-      status: "failed",
-      requestPayload: {
-        to: input.residentEmail,
-        pickupCode: input.pickupCode,
-        qrImageUrl: input.qrImageUrl,
-      },
-      errorMessage:
-        emailError instanceof Error
-          ? emailError.message
-          : "Falha inesperada ao enviar e-mail.",
-    });
-  }
-}
-
 export async function createDelivery(_prevState: DeliveryActionState, formData: FormData) {
   const submittedValues = getDeliveryFormValues(formData);
   const condominiumId =
@@ -713,7 +652,6 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
     let resolvedUnitId: string | null = parsed.unitId || null;
     let resolvedResidentName = parsed.residentName?.trim() ?? "";
     let resolvedResidentPhone = parsed.residentPhone?.trim() ?? "";
-    let resolvedResidentEmail: string | null = null;
     let resolvedApartment = parsed.apartment?.trim() ?? "";
     let notificationResidentName = resolvedResidentName;
 
@@ -746,8 +684,6 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
       }
       notificationResidentName = residentRecord.full_name;
       resolvedResidentPhone = residentRecord.phone?.trim() ?? resolvedResidentPhone;
-      resolvedResidentEmail = residentRecord.email?.trim() || null;
-
       if (parsed.unitId && residentRecord.unit_id && parsed.unitId !== residentRecord.unit_id) {
         throw new Error("O morador selecionado pertence a outra unidade.");
       }
@@ -940,17 +876,6 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           },
         });
 
-        await sendEmailNotificationIfPossible({
-          deliveryId: data.id,
-          residentEmail: resolvedResidentEmail,
-          residentName: resolvedResidentName,
-          apartment: resolvedApartment,
-          carrier: parsed.carrier,
-          description: parsed.description,
-          pickupCode,
-          qrImageUrl,
-        });
-
         await createStatusHistoryEntry({
           deliveryId: data.id,
           fromStatus: "notified",
@@ -1023,7 +948,7 @@ export async function markDeliveryNotified(formData: FormData) {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("deliveries")
-      .select("id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes, residents(email)")
+      .select("id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes")
       .eq("id", parsed.id)
       .eq("condominium_id", activeCondominium.id)
       .single();
@@ -1050,14 +975,6 @@ export async function markDeliveryNotified(formData: FormData) {
     let pickupLink: Awaited<ReturnType<typeof buildPickupLinkForDelivery>> | null = null;
     let qrImageUrl: string | null = null;
     let pickupCode: string | null = null;
-    const deliveryRecord = data as typeof data & {
-      internal_notes?: string | null;
-      residents?: { email: string | null } | Array<{ email: string | null }> | null;
-    };
-    const residentRecord = Array.isArray(deliveryRecord.residents)
-      ? deliveryRecord.residents[0]
-      : deliveryRecord.residents;
-    const residentEmail = residentRecord?.email?.trim() || null;
 
     try {
       const baseUrl = await getAppBaseUrl();
@@ -1139,17 +1056,6 @@ export async function markDeliveryNotified(formData: FormData) {
       metadata: {
         expiresAt: pickupLink?.expiresAt ?? null,
       },
-    });
-
-    await sendEmailNotificationIfPossible({
-      deliveryId: parsed.id,
-      residentEmail,
-      residentName: data.resident_name,
-      apartment: data.apartment,
-      carrier: data.carrier,
-      description: data.description,
-      pickupCode,
-      qrImageUrl,
     });
 
     revalidatePath("/");
@@ -1677,6 +1583,10 @@ export async function createCondominium(formData: FormData) {
 
     if (!operatorContext.memberships.some((membership) => membership.role === "admin")) {
       throw new Error("Somente administradores podem cadastrar novos condomínios.");
+    }
+
+    if (operatorContext.memberships.length > 0) {
+      throw new Error("Cada operador pode pertencer a apenas um condomínio. Cadastre o condomínio com uma conta sem vínculo prévio.");
     }
 
     const parsed = createCondominiumSchema.parse({

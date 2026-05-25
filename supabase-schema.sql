@@ -66,7 +66,7 @@ create table if not exists public.operator_memberships (
   is_active boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
-  unique (user_id, condominium_id)
+  unique (user_id)
 );
 
 create table if not exists public.operator_sessions (

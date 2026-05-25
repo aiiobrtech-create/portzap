@@ -17,8 +17,6 @@
 - preencher `EVOLUTION_INSTANCE`
 - preencher `EVOLUTION_WEBHOOK_SECRET` se quiser validar o webhook de status
 - configurar a Evolution para chamar `POST /api/evolution/status` neste app
-- preencher `RESEND_API_KEY`
-- preencher `EMAIL_FROM`
 
 ## Operação
 
@@ -30,7 +28,6 @@
 - validar troca de condomínio autorizada
 - validar cadastro de morador e encomenda
 - validar envio de notificação
-- validar envio de e-mail para morador com e-mail cadastrado
 - validar envio de WhatsApp com foto quando a encomenda tiver foto
 - validar geração do QR
 - validar leitura e retirada por QR

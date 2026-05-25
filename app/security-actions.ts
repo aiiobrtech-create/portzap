@@ -268,6 +268,33 @@ export async function createOperatorForCondominium(formData: FormData) {
     operatorUserId = createdUser.id;
   }
 
+  const { data: existingMemberships, error: membershipLookupError } = await supabase
+    .from("operator_memberships")
+    .select("condominium_id")
+    .eq("user_id", operatorUserId);
+
+  if (membershipLookupError) {
+    redirect("/configuracoes?tone=error&message=Falha+ao+verificar+os+v%C3%ADnculos+do+operador.");
+  }
+
+  const linkedCondominiumIds = Array.from(
+    new Set((existingMemberships ?? []).map((membership) => membership.condominium_id)),
+  );
+
+  if (linkedCondominiumIds.length > 0) {
+    if (linkedCondominiumIds.includes(parsed.condominiumId)) {
+      redirect(
+        `/configuracoes?tone=success&message=${encodeURIComponent(
+          "Operador já está vinculado a este condomínio.",
+        )}`,
+      );
+    }
+
+    redirect(
+      "/configuracoes?tone=error&message=Cada+operador+pode+pertencer+a+apenas+um+condom%C3%ADnio.",
+    );
+  }
+
   const { error: membershipError } = await supabase.from("operator_memberships").insert({
     user_id: operatorUserId,
     condominium_id: parsed.condominiumId,
