@@ -4,7 +4,7 @@
 
 | Fluxo | Estado | Evidência |
 | --- | --- | --- |
-| Autenticação do operador | Implementado | `app/login/page.tsx`, `app/setup/page.tsx`, `app/security-actions.ts`, `proxy.ts` |
+| Autenticação do operador | Implementado com Supabase Auth | `app/login/page.tsx`, `app/definir-senha/page.tsx`, `app/security-actions.ts`, `proxy.ts` |
 | Vínculo operador-condomínio | Implementado com regra de um condomínio por operador | `lib/operator-auth.ts`, `supabase-schema.sql` |
 | Seleção de condomínio | Implementado | `app/sidebar-nav.tsx`, `app/security-actions.ts` |
 | Cadastro de condomínio | Implementado | `app/configuracoes/page.tsx`, `app/actions.ts` |
@@ -36,4 +36,4 @@
 - a renderização visual do QR usa o serviço externo `api.qrserver.com`
 - o envio de aviso depende de `Evolution`
 - os status Entregue/Lido dependem do webhook da Evolution apontar para `/api/evolution/status`
-- o schema local já reflete as novas tabelas, mas ainda precisa ser aplicado no banco remoto antes do go-live
+- o fluxo de convite/definição de senha usa Supabase Auth

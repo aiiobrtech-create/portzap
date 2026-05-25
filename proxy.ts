@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ONBOARDING_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { ONBOARDING_COOKIE_NAME } from "@/lib/auth/session";
 
 const publicRoutes = ["/login", "/definir-senha"];
 const publicPrefixes = ["/_next", "/q/"];
+
+function hasSupabaseSessionCookie(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
+}
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -11,7 +17,7 @@ export function proxy(request: NextRequest) {
     publicPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
     pathname === "/favicon.ico" ||
     /\.[a-zA-Z0-9]+$/.test(pathname);
-  const hasSession = !!request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const hasSession = hasSupabaseSessionCookie(request);
   const onboardingState = request.cookies.get(ONBOARDING_COOKIE_NAME)?.value;
   const needsOnboarding = hasSession && onboardingState !== "done";
 

@@ -19,7 +19,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const resolvedSearchParams = (await searchParams) ?? {};
   const feedbackMessage = getSingleParam(resolvedSearchParams.message)?.trim() ?? "";
   const feedbackTone = getSingleParam(resolvedSearchParams.tone);
-  const setupToken = getSingleParam(resolvedSearchParams.setupToken)?.trim() ?? "";
+  const setupLink = getSingleParam(resolvedSearchParams.setupLink)?.trim() ?? "";
   const [{ activeCondominium, condominiums }, operatorContext] = await Promise.all([
     resolveCondominiumContext(),
     requireOperatorContext(),
@@ -49,10 +49,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </section>
       ) : null}
 
-      {setupToken ? (
+      {setupLink ? (
         <section className="feedbackBanner feedbackBannerSuccess">
-          <strong>Link de definição de senha gerado</strong>
-          <p>{`/definir-senha?token=${setupToken}`}</p>
+          <strong>Link de convite gerado</strong>
+          <p>{setupLink}</p>
         </section>
       ) : null}
 

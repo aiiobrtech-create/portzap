@@ -3,17 +3,16 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
-  createOperatorSession,
-  invalidateCurrentOperatorSession,
+  ensureOperatorProfileForAuthUser,
   requireAuthorizedCondominium,
   requireOperatorContext,
   setActiveCondominiumCookie,
   setOnboardingCookie,
 } from "@/lib/operator-auth";
-import { buildSessionExpiry, generateOpaqueToken, hashOpaqueToken } from "@/lib/auth/session";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { sanitizeStoredPhone } from "@/lib/input-formatting";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { hashPassword, verifyPassword } from "@/lib/security/password";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const loginSchema = z.object({
   email: z.email("Informe um e-mail válido."),
@@ -35,7 +34,6 @@ const updateOperatorProfileSchema = z.object({
   fullName: z.string().trim().min(3, "Informe o nome completo.").max(120, "Use até 120 caracteres."),
 });
 const initialPasswordSchema = z.object({
-  token: z.string().trim().min(1, "Link inválido."),
   password: z.string().min(8, "Use uma senha com ao menos 8 caracteres.").max(128, "Use até 128 caracteres."),
 });
 
@@ -61,28 +59,32 @@ export async function loginOperator(formData: FormData) {
     password: formData.get("password"),
   });
 
-  const supabase = createSupabaseAdminClient();
-  const { data: user, error } = await supabase
-    .from("operator_users")
-    .select("id, full_name, email, password_hash, is_active, password_set_at, onboarding_completed")
-    .eq("email", normalizeEmail(parsed.email))
-    .single();
+  const normalizedEmail = normalizeEmail(parsed.email);
+  const serverSupabase = await createSupabaseServerClient();
+  const { data: authLogin, error: authLoginError } = await serverSupabase.auth.signInWithPassword({
+    email: normalizedEmail,
+    password: parsed.password,
+  });
 
-  if (
-    error ||
-    !user ||
-    !user.is_active ||
-    !user.password_hash ||
-    !user.password_set_at ||
-    !verifyPassword(parsed.password, user.password_hash)
-  ) {
+  if (authLoginError || !authLogin.session || !authLogin.user) {
     redirect("/login?tone=error&message=Credenciais+inv%C3%A1lidas.");
   }
 
+  const profile = await ensureOperatorProfileForAuthUser({
+    id: authLogin.user.id,
+    email: authLogin.user.email ?? normalizedEmail,
+    user_metadata: authLogin.user.user_metadata,
+  });
+
+  if (!profile.is_active) {
+    redirect("/login?tone=error&message=Conta+do+operador+inativa.");
+  }
+
+  const supabase = createSupabaseAdminClient();
   const { data: memberships, error: membershipError } = await supabase
     .from("operator_memberships")
     .select("condominium_id, is_default, condominiums!inner(id, is_active)")
-    .eq("user_id", user.id)
+    .eq("user_id", profile.id)
     .eq("is_active", true);
 
   if (membershipError) {
@@ -104,52 +106,47 @@ export async function loginOperator(formData: FormData) {
   const defaultMembership =
     availableMemberships.find((membership) => membership.is_default) ?? availableMemberships[0];
 
-  await createOperatorSession(user.id, defaultMembership.condominium_id, user.onboarding_completed);
+  await setActiveCondominiumCookie(defaultMembership.condominium_id);
+  await setOnboardingCookie(profile.onboarding_completed);
   redirect("/");
 }
 
 export async function completeInitialPassword(formData: FormData) {
   const parsed = initialPasswordSchema.parse({
-    token: formData.get("token"),
     password: formData.get("password"),
   });
 
-  const supabase = createSupabaseAdminClient();
-  const now = new Date().toISOString();
-  const tokenHash = hashOpaqueToken(parsed.token);
-  const { data: tokenRow, error } = await supabase
-    .from("operator_password_setup_tokens")
-    .select("id, user_id, expires_at, used_at")
-    .eq("token_hash", tokenHash)
-    .is("used_at", null)
-    .gt("expires_at", now)
-    .single();
+  const supabase = await createSupabaseServerClient();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
 
-  if (error || !tokenRow) {
-    redirect("/definir-senha?tone=error&message=Link+de+defini%C3%A7%C3%A3o+de+senha+inv%C3%A1lido+ou+expirado.");
+  if (authError || !authData.user) {
+    redirect("/definir-senha?tone=error&message=Sess%C3%A3o+Supabase+inv%C3%A1lida+ou+expirada.");
   }
 
-  const passwordHash = hashPassword(parsed.password);
-  const { error: userError } = await supabase
-    .from("operator_users")
-    .update({
-      password_hash: passwordHash,
-      password_set_at: now,
-    })
-    .eq("id", tokenRow.user_id);
+  const { error: passwordError } = await supabase.auth.updateUser({
+    password: parsed.password,
+  });
 
-  if (userError) {
+  if (passwordError) {
     redirect("/definir-senha?tone=error&message=Falha+ao+definir+a+senha.");
   }
 
-  await supabase
-    .from("operator_password_setup_tokens")
-    .update({
-      used_at: now,
-    })
-    .eq("id", tokenRow.id);
+  const profile = await ensureOperatorProfileForAuthUser({
+    id: authData.user.id,
+    email: authData.user.email ?? null,
+    user_metadata: authData.user.user_metadata,
+  });
 
-  redirect("/login?tone=success&message=Senha+definida+com+sucesso.+Agora+fa%C3%A7a+login.");
+  const adminSupabase = createSupabaseAdminClient();
+  await adminSupabase
+    .from("operator_users")
+    .update({
+      full_name: profile.full_name,
+      email: profile.email,
+    })
+    .eq("id", profile.id);
+
+  redirect("/?tone=success&message=Senha+definida+com+sucesso.");
 }
 
 export async function completeFirstAccess(formData: FormData) {
@@ -199,7 +196,8 @@ export async function completeFirstAccess(formData: FormData) {
 }
 
 export async function logoutOperator() {
-  await invalidateCurrentOperatorSession();
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
   redirect("/login");
 }
 
@@ -237,35 +235,98 @@ export async function createOperatorForCondominium(formData: FormData) {
 
   const supabase = createSupabaseAdminClient();
   const normalizedEmail = normalizeEmail(parsed.email);
-  let operatorUserId = "";
-  let setupToken: string | null = null;
-
-  const { data: existingUser } = await supabase
+  const { data: existingProfile, error: profileError } = await supabase
     .from("operator_users")
-    .select("id")
+    .select("id, auth_user_id, full_name, email, is_active, onboarding_completed")
     .eq("email", normalizedEmail)
     .maybeSingle();
 
-  if (existingUser?.id) {
-    operatorUserId = existingUser.id;
-  } else {
-    const { data: createdUser, error: createUserError } = await supabase
-      .from("operator_users")
-      .insert({
-        full_name: parsed.fullName.trim(),
-        email: normalizedEmail,
-        password_hash: null,
-        password_set_at: null,
-        onboarding_completed: false,
-      })
-      .select("id")
-      .single();
+  if (profileError) {
+    redirect("/configuracoes?tone=error&message=Falha+ao+verificar+o+operador+existente.");
+  }
 
-    if (createUserError || !createdUser) {
-      redirect("/configuracoes?tone=error&message=Falha+ao+cadastrar+o+novo+operador.");
+  const profileId = existingProfile?.id ?? null;
+
+  if (profileId) {
+    const { data: memberships, error: membershipLookupError } = await supabase
+      .from("operator_memberships")
+      .select("condominium_id")
+      .eq("user_id", profileId);
+
+    if (membershipLookupError) {
+      redirect("/configuracoes?tone=error&message=Falha+ao+verificar+os+v%C3%ADnculos+do+operador.");
     }
 
-    operatorUserId = createdUser.id;
+    const linkedCondominiumIds = Array.from(
+      new Set((memberships ?? []).map((membership) => membership.condominium_id)),
+    );
+
+    if (linkedCondominiumIds.length > 0 && !linkedCondominiumIds.includes(parsed.condominiumId)) {
+      redirect(
+        "/configuracoes?tone=error&message=Cada+operador+pode+pertencer+a+apenas+um+condom%C3%ADnio.",
+      );
+    }
+  }
+
+  const shouldCreateAuthInvite = !existingProfile?.auth_user_id;
+  let setupLink: string | null = null;
+  let authUserId = existingProfile?.auth_user_id ?? null;
+
+  if (shouldCreateAuthInvite) {
+    const baseUrl = await getAppBaseUrl();
+    const { data: inviteData, error: inviteError } = await supabase.auth.admin.generateLink({
+      type: "invite",
+      email: normalizedEmail,
+      options: {
+        data: {
+          full_name: parsed.fullName.trim(),
+          condominium_id: parsed.condominiumId,
+          role: parsed.role,
+        },
+        redirectTo: `${baseUrl}/definir-senha`,
+      },
+    });
+
+    if (inviteError || !inviteData?.user?.id || !inviteData.properties?.action_link) {
+      redirect("/configuracoes?tone=error&message=Falha+ao+gerar+o+convite+nativo+do+Supabase.");
+    }
+
+    authUserId = inviteData.user.id;
+    setupLink = inviteData.properties.action_link;
+  }
+
+  if (existingProfile) {
+    const { error: updateError } = await supabase
+      .from("operator_users")
+      .update({
+        auth_user_id: authUserId,
+        full_name: parsed.fullName.trim(),
+        email: normalizedEmail,
+        is_active: true,
+      })
+      .eq("id", existingProfile.id);
+
+    if (updateError) {
+      redirect("/configuracoes?tone=error&message=Falha+ao+atualizar+o+operador.");
+    }
+  } else {
+    const { error: createError } = await supabase.from("operator_users").insert({
+      id: authUserId,
+      auth_user_id: authUserId,
+      full_name: parsed.fullName.trim(),
+      email: normalizedEmail,
+      onboarding_completed: false,
+      is_active: true,
+    });
+
+    if (createError) {
+      redirect("/configuracoes?tone=error&message=Falha+ao+cadastrar+o+novo+operador.");
+    }
+  }
+
+  const operatorUserId = profileId ?? authUserId;
+  if (!operatorUserId) {
+    redirect("/configuracoes?tone=error&message=Falha+ao+identificar+o+operador+criado.");
   }
 
   const { data: existingMemberships, error: membershipLookupError } = await supabase
@@ -283,11 +344,11 @@ export async function createOperatorForCondominium(formData: FormData) {
 
   if (linkedCondominiumIds.length > 0) {
     if (linkedCondominiumIds.includes(parsed.condominiumId)) {
-      redirect(
-        `/configuracoes?tone=success&message=${encodeURIComponent(
-          "Operador já está vinculado a este condomínio.",
-        )}`,
-      );
+      const message = setupLink
+        ? "Operador já estava vinculado e o link de convite nativo foi gerado novamente."
+        : "Operador já está vinculado a este condomínio.";
+
+      redirect(`/configuracoes?tone=success&message=${encodeURIComponent(message)}${setupLink ? `&setupLink=${encodeURIComponent(setupLink)}` : ""}`);
     }
 
     redirect(
@@ -306,26 +367,12 @@ export async function createOperatorForCondominium(formData: FormData) {
     redirect("/configuracoes?tone=error&message=Falha+ao+vincular+o+operador+ao+condom%C3%ADnio.");
   }
 
-  if (!existingUser?.id) {
-    setupToken = generateOpaqueToken();
-    const expiresAt = buildSessionExpiry();
-    const { error: tokenError } = await supabase.from("operator_password_setup_tokens").insert({
-      user_id: operatorUserId,
-      token_hash: hashOpaqueToken(setupToken),
-      expires_at: expiresAt.toISOString(),
-    });
-
-    if (tokenError) {
-      redirect("/configuracoes?tone=error&message=Operador+criado,+mas+falhou+a+gera%C3%A7%C3%A3o+do+link+de+senha.");
-    }
-  }
-
   redirect(
     `/configuracoes?tone=success&message=${encodeURIComponent(
-      setupToken
-        ? "Operador vinculado. Envie o link de definição de senha gerado na tela."
+      setupLink
+        ? "Operador vinculado. Envie o link de convite Supabase gerado na tela."
         : "Operador já existente vinculado com sucesso.",
-    )}${setupToken ? `&setupToken=${encodeURIComponent(setupToken)}` : ""}`,
+    )}${setupLink ? `&setupLink=${encodeURIComponent(setupLink)}` : ""}`,
   );
 }
 

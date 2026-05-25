@@ -47,11 +47,10 @@ create table if not exists public.residents (
 
 create table if not exists public.operator_users (
   id uuid primary key default gen_random_uuid(),
+  auth_user_id uuid unique references auth.users(id) on delete set null,
   full_name text not null,
   email text not null unique,
-  password_hash text,
   is_active boolean not null default true,
-  password_set_at timestamptz,
   onboarding_completed boolean not null default false,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -69,29 +68,20 @@ create table if not exists public.operator_memberships (
   unique (user_id)
 );
 
-create table if not exists public.operator_sessions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.operator_users(id) on delete cascade,
-  token_hash text not null unique,
-  expires_at timestamptz not null,
-  invalidated_at timestamptz,
-  created_at timestamptz not null default timezone('utc', now()),
-  last_seen_at timestamptz not null default timezone('utc', now())
-);
-
-create table if not exists public.operator_password_setup_tokens (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.operator_users(id) on delete cascade,
-  token_hash text not null unique,
-  expires_at timestamptz not null,
-  used_at timestamptz,
-  created_at timestamptz not null default timezone('utc', now())
-);
+alter table public.operator_users
+  add column if not exists auth_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists onboarding_completed boolean not null default false;
 
 alter table public.operator_users
-  add column if not exists password_hash text,
-  add column if not exists password_set_at timestamptz,
-  add column if not exists onboarding_completed boolean not null default false;
+  drop column if exists password_hash,
+  drop column if exists password_set_at;
+
+drop table if exists public.operator_sessions cascade;
+drop table if exists public.operator_password_setup_tokens cascade;
+
+create unique index if not exists operator_users_auth_user_id_idx
+  on public.operator_users (auth_user_id)
+  where auth_user_id is not null;
 
 create table if not exists public.deliveries (
   id uuid primary key default gen_random_uuid(),
@@ -191,18 +181,6 @@ create index if not exists operator_memberships_user_id_idx
 create index if not exists operator_memberships_condominium_id_idx
   on public.operator_memberships (condominium_id);
 
-create index if not exists operator_sessions_user_id_idx
-  on public.operator_sessions (user_id);
-
-create index if not exists operator_sessions_expires_at_idx
-  on public.operator_sessions (expires_at);
-
-create index if not exists operator_password_setup_tokens_user_id_idx
-  on public.operator_password_setup_tokens (user_id);
-
-create index if not exists operator_password_setup_tokens_expires_at_idx
-  on public.operator_password_setup_tokens (expires_at);
-
 create index if not exists deliveries_received_at_idx
   on public.deliveries (received_at desc);
 
@@ -268,8 +246,6 @@ alter table public.units enable row level security;
 alter table public.residents enable row level security;
 alter table public.operator_users enable row level security;
 alter table public.operator_memberships enable row level security;
-alter table public.operator_sessions enable row level security;
-alter table public.operator_password_setup_tokens enable row level security;
 alter table public.deliveries enable row level security;
 alter table public.delivery_status_history enable row level security;
 alter table public.notification_attempts enable row level security;
@@ -310,22 +286,6 @@ with check (false);
 drop policy if exists operator_memberships_no_direct_access on public.operator_memberships;
 create policy operator_memberships_no_direct_access
 on public.operator_memberships
-for all
-to anon, authenticated
-using (false)
-with check (false);
-
-drop policy if exists operator_sessions_no_direct_access on public.operator_sessions;
-create policy operator_sessions_no_direct_access
-on public.operator_sessions
-for all
-to anon, authenticated
-using (false)
-with check (false);
-
-drop policy if exists operator_password_setup_tokens_no_direct_access on public.operator_password_setup_tokens;
-create policy operator_password_setup_tokens_no_direct_access
-on public.operator_password_setup_tokens
 for all
 to anon, authenticated
 using (false)

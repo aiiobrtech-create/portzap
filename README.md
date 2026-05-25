@@ -28,7 +28,7 @@ Observacao: o app atual grava auditoria em `delivery_status_history`, registra t
 
 Observacao: o fluxo principal de encomendas ja pode vincular `resident_id` e `unit_id` quando a base operacional do condominio estiver cadastrada.
 
-Observacao: esta versao inclui operadores autenticados, membership unica por condominio, sessao por cookie e retirada por QR com auditoria.
+Observacao: esta versao usa Supabase Auth para autenticacao do operador e mantem a membership unica por condominio.
 
 ## Operacao autenticada
 

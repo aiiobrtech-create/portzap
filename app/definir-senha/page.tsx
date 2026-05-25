@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { completeInitialPassword } from "@/app/security-actions";
-import { getPasswordSetupInviteByToken } from "@/lib/password-setup";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type SetPasswordPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -14,11 +14,23 @@ export default async function SetPasswordPage({ searchParams }: SetPasswordPageP
   const resolvedSearchParams = (await searchParams) ?? {};
   const feedbackMessage = getSingleParam(resolvedSearchParams.message)?.trim() ?? "";
   const feedbackTone = getSingleParam(resolvedSearchParams.tone);
-  const token = getSingleParam(resolvedSearchParams.token)?.trim() ?? "";
-  const invite = await getPasswordSetupInviteByToken(token);
+  const code = getSingleParam(resolvedSearchParams.code)?.trim() ?? "";
+  if (code) {
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-  if (!token || !invite) {
-    redirect("/login?tone=error&message=Link+de+defini%C3%A7%C3%A3o+de+senha+inv%C3%A1lido+ou+expirado.");
+    if (error) {
+      redirect("/login?tone=error&message=Link+de+convite+inv%C3%A1lido+ou+expirado.");
+    }
+
+    redirect("/definir-senha");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+
+  if (!authData.user) {
+    redirect("/login?tone=error&message=Sess%C3%A3o+Supabase+inv%C3%A1lida+ou+expirada.");
   }
 
   return (
@@ -39,11 +51,9 @@ export default async function SetPasswordPage({ searchParams }: SetPasswordPageP
         ) : null}
 
         <form action={completeInitialPassword} className="deliveryForm">
-          <input type="hidden" name="token" value={token} />
-
           <label className="field">
             <span>E-mail da conta</span>
-            <input value={invite.user.email} readOnly disabled />
+            <input value={authData.user?.email ?? ""} readOnly disabled />
           </label>
 
           <label className="field">

@@ -12,6 +12,8 @@
 - preencher `NEXT_PUBLIC_SUPABASE_URL`
 - preencher `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - preencher `SUPABASE_SERVICE_ROLE_KEY`
+- configurar os redirects de auth do Supabase para este app, incluindo `/definir-senha`
+- validar os templates de convite/recovery do Supabase Auth
 - preencher `EVOLUTION_BASE_URL` com a raiz da API Evolution, por exemplo `https://seu-dominio-ou-proxy`
 - preencher `EVOLUTION_API_KEY`
 - preencher `EVOLUTION_INSTANCE`
@@ -23,7 +25,7 @@
 - executar `npm run lint`
 - executar `npm run test`
 - executar `npm run build`
-- abrir `/setup` se não existir operador inicial
+- abrir `/login` para validar o primeiro acesso e o fluxo de convite do Supabase Auth
 - validar login do operador
 - validar troca de condomínio autorizada
 - validar cadastro de morador e encomenda
@@ -39,4 +41,4 @@
 
 - em caso de falha no QR, manter retirada manual pela home
 - em caso de falha na Evolution, manter cadastro e fila operando sem bloquear retirada
-- não remover tabelas nem auditorias durante rollback
+- o rollback de auth deve restaurar o backup do banco e o deploy anterior, mantendo o schema compatível com `auth.users`

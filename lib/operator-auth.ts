@@ -4,13 +4,10 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   ACTIVE_CONDOMINIUM_COOKIE_NAME,
-  buildSessionExpiry,
-  generateOpaqueToken,
-  hashOpaqueToken,
   ONBOARDING_COOKIE_NAME,
-  SESSION_COOKIE_NAME,
 } from "@/lib/auth/session";
 
 export const operatorRoles = ["admin", "operator"] as const;
@@ -19,10 +16,10 @@ export type OperatorRole = (typeof operatorRoles)[number];
 
 export type OperatorUser = {
   id: string;
+  auth_user_id: string | null;
   full_name: string;
   email: string;
   is_active: boolean;
-  password_set_at: string | null;
   onboarding_completed: boolean;
 };
 
@@ -41,6 +38,12 @@ export type OperatorContext = {
   user: OperatorUser;
   memberships: AuthorizedCondominium[];
   activeCondominium: AuthorizedCondominium | null;
+};
+
+type AuthSessionUser = {
+  id: string;
+  email: string | null;
+  user_metadata?: Record<string, unknown> | null;
 };
 
 function getSecureCookieFlag() {
@@ -94,6 +97,99 @@ function mapMemberships(
     .filter(Boolean) as AuthorizedCondominium[];
 }
 
+function mapOperatorUser(row: {
+  id: string;
+  auth_user_id: string | null;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+  onboarding_completed: boolean;
+}): OperatorUser {
+  return {
+    id: row.id,
+    auth_user_id: row.auth_user_id,
+    full_name: row.full_name,
+    email: row.email,
+    is_active: row.is_active,
+    onboarding_completed: row.onboarding_completed,
+  };
+}
+
+export async function ensureOperatorProfileForAuthUser(authUser: AuthSessionUser) {
+  const supabase = createSupabaseAdminClient();
+  const normalizedEmail = authUser.email?.trim().toLowerCase() ?? null;
+  const fullNameFromMetadata =
+    typeof authUser.user_metadata?.full_name === "string"
+      ? authUser.user_metadata.full_name.trim()
+      : "";
+
+  const { data: existingProfile, error: profileError } = await supabase
+    .from("operator_users")
+    .select("id, auth_user_id, full_name, email, is_active, onboarding_completed")
+    .eq("auth_user_id", authUser.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(`Falha ao carregar o perfil do operador: ${profileError.message}`);
+  }
+
+  if (existingProfile) {
+    return mapOperatorUser(existingProfile);
+  }
+
+  if (!normalizedEmail) {
+    throw new Error("Conta Supabase sem e-mail não pode ser vinculada ao operador.");
+  }
+
+  const { data: emailProfile, error: emailProfileError } = await supabase
+    .from("operator_users")
+    .select("id, auth_user_id, full_name, email, is_active, onboarding_completed")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (emailProfileError) {
+    throw new Error(`Falha ao localizar o perfil do operador pelo e-mail: ${emailProfileError.message}`);
+  }
+
+  if (emailProfile) {
+    if (emailProfile.auth_user_id !== authUser.id) {
+      const { error: linkError } = await supabase
+        .from("operator_users")
+        .update({
+          auth_user_id: authUser.id,
+        })
+        .eq("id", emailProfile.id);
+
+      if (linkError) {
+        throw new Error(`Falha ao vincular conta Supabase ao operador: ${linkError.message}`);
+      }
+    }
+
+    return mapOperatorUser({
+      ...emailProfile,
+      auth_user_id: authUser.id,
+    });
+  }
+
+  const { data: createdProfile, error: createError } = await supabase
+    .from("operator_users")
+    .insert({
+      auth_user_id: authUser.id,
+      full_name: fullNameFromMetadata || normalizedEmail,
+      email: normalizedEmail,
+      onboarding_completed: false,
+      is_active: true,
+    })
+    .select("id, auth_user_id, full_name, email, is_active, onboarding_completed")
+    .single();
+
+  if (createError || !createdProfile) {
+    throw new Error(`Falha ao criar perfil do operador: ${createError?.message ?? "sem retorno"}`);
+  }
+
+  return mapOperatorUser(createdProfile);
+}
+
 export async function countOperatorUsers() {
   const supabase = createSupabaseAdminClient();
   const { count, error } = await supabase
@@ -108,39 +204,28 @@ export async function countOperatorUsers() {
 }
 
 export const getCurrentOperatorContext = cache(async (): Promise<OperatorContext | null> => {
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const supabase = await createSupabaseServerClient();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
 
-  if (!sessionToken) {
+  if (authError || !authData.user) {
     return null;
   }
 
-  const supabase = createSupabaseAdminClient();
-  const tokenHash = hashOpaqueToken(sessionToken);
-  const now = new Date().toISOString();
+  const profile = await ensureOperatorProfileForAuthUser({
+    id: authData.user.id,
+    email: authData.user.email ?? null,
+    user_metadata: authData.user.user_metadata,
+  });
 
-  const { data: session, error: sessionError } = await supabase
-    .from("operator_sessions")
-    .select("id, user_id, expires_at, invalidated_at, operator_users!inner(id, full_name, email, is_active, password_set_at, onboarding_completed)")
-    .eq("token_hash", tokenHash)
-    .is("invalidated_at", null)
-    .gt("expires_at", now)
-    .single();
-
-  if (sessionError || !session) {
+  if (!profile.is_active) {
     return null;
   }
 
-  const user = Array.isArray(session.operator_users) ? session.operator_users[0] : session.operator_users;
-
-  if (!user?.is_active) {
-    return null;
-  }
-
-  const { data: memberships, error: membershipError } = await supabase
+  const adminClient = createSupabaseAdminClient();
+  const { data: memberships, error: membershipError } = await adminClient
     .from("operator_memberships")
     .select("id, role, is_default, condominiums!inner(id, name, slug, contact_phone, is_active)")
-    .eq("user_id", session.user_id)
+    .eq("user_id", profile.id)
     .eq("is_active", true);
 
   if (membershipError) {
@@ -148,6 +233,11 @@ export const getCurrentOperatorContext = cache(async (): Promise<OperatorContext
   }
 
   const authorizedCondominiums = mapMemberships(memberships ?? []);
+  if (authorizedCondominiums.length === 0) {
+    return null;
+  }
+
+  const cookieStore = await cookies();
   const requestedCondominiumId = cookieStore.get(ACTIVE_CONDOMINIUM_COOKIE_NAME)?.value;
   const activeCondominium =
     authorizedCondominiums.find((membership) => membership.id === requestedCondominiumId) ??
@@ -156,14 +246,7 @@ export const getCurrentOperatorContext = cache(async (): Promise<OperatorContext
     null;
 
   return {
-    user: {
-      id: user.id,
-      full_name: user.full_name,
-      email: user.email,
-      is_active: user.is_active,
-      password_set_at: user.password_set_at,
-      onboarding_completed: user.onboarding_completed,
-    },
+    user: profile,
     memberships: authorizedCondominiums,
     activeCondominium,
   };
@@ -202,75 +285,9 @@ export function buildOperatorLabel(user: Pick<OperatorUser, "full_name" | "email
   return `${user.full_name} (${user.email})`;
 }
 
-export async function createOperatorSession(
-  userId: string,
-  activeCondominiumId?: string | null,
-  onboardingCompleted = false,
-) {
-  const supabase = createSupabaseAdminClient();
-  const rawToken = generateOpaqueToken();
-  const expiresAt = buildSessionExpiry();
-  const { error } = await supabase.from("operator_sessions").insert({
-    user_id: userId,
-    token_hash: hashOpaqueToken(rawToken),
-    expires_at: expiresAt.toISOString(),
-  });
-
-  if (error) {
-    throw new Error(`Falha ao criar sessão do operador: ${error.message}`);
-  }
-
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, rawToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: getSecureCookieFlag(),
-    expires: expiresAt,
-    path: "/",
-  });
-
-  cookieStore.set(ONBOARDING_COOKIE_NAME, onboardingCompleted ? "done" : "pending", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: getSecureCookieFlag(),
-    expires: expiresAt,
-    path: "/",
-  });
-
-  if (activeCondominiumId) {
-    cookieStore.set(ACTIVE_CONDOMINIUM_COOKIE_NAME, activeCondominiumId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: getSecureCookieFlag(),
-      expires: expiresAt,
-      path: "/",
-    });
-  }
-}
-
-export async function invalidateCurrentOperatorSession() {
-  const cookieStore = await cookies();
-  const rawToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (rawToken) {
-    const supabase = createSupabaseAdminClient();
-    await supabase
-      .from("operator_sessions")
-      .update({
-        invalidated_at: new Date().toISOString(),
-      })
-      .eq("token_hash", hashOpaqueToken(rawToken))
-      .is("invalidated_at", null);
-  }
-
-  cookieStore.delete(SESSION_COOKIE_NAME);
-  cookieStore.delete(ACTIVE_CONDOMINIUM_COOKIE_NAME);
-  cookieStore.delete(ONBOARDING_COOKIE_NAME);
-}
-
 export async function setActiveCondominiumCookie(condominiumId: string) {
   const cookieStore = await cookies();
-  const expiresAt = buildSessionExpiry();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   cookieStore.set(ACTIVE_CONDOMINIUM_COOKIE_NAME, condominiumId, {
     httpOnly: true,
@@ -283,7 +300,7 @@ export async function setActiveCondominiumCookie(condominiumId: string) {
 
 export async function setOnboardingCookie(isCompleted: boolean) {
   const cookieStore = await cookies();
-  const expiresAt = buildSessionExpiry();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   cookieStore.set(ONBOARDING_COOKIE_NAME, isCompleted ? "done" : "pending", {
     httpOnly: true,
