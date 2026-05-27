@@ -15,7 +15,12 @@ import { buildPickupLinkForDelivery, cancelActivePickupTokensForDelivery, consum
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { deliveryStatuses, type DeliveryStatus } from "@/lib/deliveries";
 import { sanitizeStoredPhone } from "@/lib/input-formatting";
-import { buildPickupValidationUrl, buildQrImageUrl, extractPickupTokenFromInput } from "@/lib/pickups";
+import {
+  buildPickupValidationUrl,
+  buildQrImageUrl,
+  extractPickupTokenFromInput,
+  formatPickupCode,
+} from "@/lib/pickups";
 
 const createDeliverySchema = z.object({
   residentId: z.string().uuid("Morador invalido.").optional().or(z.literal("")),
@@ -396,25 +401,18 @@ function buildNotificationMessage(input: {
   qrImageUrl?: string | null;
   pickupCode?: string | null;
 }) {
-  const detail = input.description ? ` Item: ${input.description}.` : "";
-  const carrier = input.carrier ? ` Transportadora: ${input.carrier}.` : "";
-  const packagePhoto = input.packagePhotoUrl ? " Foto da encomenda anexada." : "";
-  const qrPhoto = input.qrImageUrl ? " QR da retirada anexado." : "";
-  const code = input.pickupCode ? ` Código manual: ${input.pickupCode}.` : "";
+  const lines = [
+    `Olá, ${input.residentName}.`,
+    `Sua encomenda chegou na portaria da unidade *${input.apartment}*.`,
+    input.carrier ? `*Transportadora:* ${input.carrier}` : null,
+    input.description ? `*Item:* ${input.description}` : null,
+    input.packagePhotoUrl ? "*Foto da encomenda:* anexada" : null,
+    input.qrImageUrl ? "*QR da retirada:* anexado" : null,
+    input.pickupCode ? `*Código de retirada:* ${formatPickupCode(input.pickupCode)}` : null,
+    "*Retire quando for conveniente.*",
+  ].filter((line): line is string => Boolean(line));
 
-  return [
-    `Ola, ${input.residentName}.`,
-    `Sua encomenda chegou na portaria da unidade ${input.apartment}.`,
-    carrier,
-    detail,
-    packagePhoto,
-    qrPhoto,
-    code,
-    "Retire quando for conveniente.",
-  ]
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return lines.join("\n");
 }
 
 async function notifyResident(input: {
@@ -454,7 +452,14 @@ async function notifyResident(input: {
     await sendMedia(
       "qr da retirada",
       input.qrImageUrl,
-      input.packagePhotoUrl ? "QR de retirada." : message,
+      input.packagePhotoUrl
+        ? [
+            `QR de retirada da unidade *${input.apartment}*.`,
+            input.pickupCode ? `Código: ${formatPickupCode(input.pickupCode)}` : null,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n")
+        : message,
     );
   }
 

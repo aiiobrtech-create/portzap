@@ -2,7 +2,12 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getAppBaseUrl } from "@/lib/app-url";
 import { getPickupTokenByValue } from "@/lib/pickup-tokens";
-import { buildPickupValidationUrl, buildQrImageUrl, isPickupExpired } from "@/lib/pickups";
+import {
+  buildPickupValidationUrl,
+  buildQrImageUrl,
+  formatPickupCode,
+  isPickupExpired,
+} from "@/lib/pickups";
 
 type PickupQrPageProps = {
   params: Promise<{ token: string }>;
@@ -77,7 +82,7 @@ export default async function PickupQrPage({ params }: PickupQrPageProps) {
                 timeStyle: "short",
               }).format(new Date(pickup.expires_at))}
             </p>
-            <code className="pickupTokenCode">{pickup.token_value}</code>
+            <code className="pickupTokenCode">{formatPickupCode(pickup.token_value)}</code>
           </div>
         </div>
       </section>

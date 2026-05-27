@@ -4,6 +4,8 @@ import {
   buildPickupResidentUrl,
   buildPickupValidationUrl,
   extractPickupTokenFromInput,
+  formatPickupCode,
+  generatePickupToken,
   isPickupExpired,
 } from "../lib/pickups.ts";
 
@@ -18,8 +20,16 @@ test("pickup helpers build stable URLs", () => {
   );
 });
 
+test("pickup token generator returns a standardized code", () => {
+  const token = generatePickupToken();
+
+  assert.match(token, /^[A-Z2-9]{8}$/);
+  assert.equal(formatPickupCode(token), `${token.slice(0, 4)}-${token.slice(4)}`);
+});
+
 test("pickup helpers extract token from raw text or URLs", () => {
   assert.equal(extractPickupTokenFromInput("abc123"), "abc123");
+  assert.equal(extractPickupTokenFromInput("ABCD-EFGH"), "ABCDEFGH");
   assert.equal(
     extractPickupTokenFromInput("https://portzap.local/retirada?token=abc123"),
     "abc123",

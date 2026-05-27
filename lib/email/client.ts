@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getServerEnv } from "@/lib/env";
+import { formatPickupCode } from "@/lib/pickups";
 
 type SendDeliveryEmailInput = {
   to: string;
@@ -36,7 +37,7 @@ export async function sendDeliveryEmail(input: SendDeliveryEmailInput) {
     `Unidade: ${input.apartment}`,
     input.carrier ? `Transportadora: ${input.carrier}` : null,
     input.description ? `Item: ${input.description}` : null,
-    input.pickupCode ? `Código manual: ${input.pickupCode}` : null,
+    input.pickupCode ? `Código de retirada: ${formatPickupCode(input.pickupCode)}` : null,
   ].filter(Boolean);
   const htmlDetails = details.map((detail) => `<li>${escapeHtml(String(detail))}</li>`).join("");
 
