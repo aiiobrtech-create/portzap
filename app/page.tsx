@@ -17,7 +17,12 @@ import {
 } from "@/app/actions";
 import { DropdownSelect } from "@/app/dropdown-select";
 import { resolveCondominiumContext } from "@/lib/condominiums";
-import { deliveryStatuses, getDeliveryMetrics, listRecentDeliveries } from "@/lib/deliveries";
+import {
+  deliveryStatuses,
+  getDeliveryMetrics,
+  getDeliveryPackagePhotoUrl,
+  listRecentDeliveries,
+} from "@/lib/deliveries";
 
 export const dynamic = "force-dynamic";
 
@@ -286,33 +291,54 @@ export default async function Home({ searchParams }: HomeProps) {
                 <div className="deliveryList">
                   {recentDeliveries.map((delivery) => {
                     const hasActions = delivery.status === "pending" || delivery.status === "notified";
+                    const packagePhotoUrl = getDeliveryPackagePhotoUrl(delivery);
 
                     return (
                       <article key={delivery.id} className="deliveryItem">
-                        <span className={`statusBadge status-${delivery.status}`}>
-                          {delivery.status === "pending" && "Pendente"}
-                          {delivery.status === "notified" && "Avisado"}
-                          {delivery.status === "picked_up" && "Retirado"}
-                          {delivery.status === "cancelled" && "Cancelado"}
-                        </span>
-
-                        <div className="deliveryItemInfo">
-                          <h3>{delivery.resident_name}</h3>
-                          <p>
-                            Unidade {delivery.apartment}
-                            {delivery.carrier ? ` • ${delivery.carrier}` : ""}
-                            {delivery.resident_phone ? ` • Contato ${delivery.resident_phone}` : ""}
-                            {delivery.description ? ` • ${delivery.description}` : ""}
-                          </p>
-                        </div>
-
-                        <div className="deliveryMeta">
-                          <span>
-                            Recebido em {formatDate(delivery.received_at)}
-                            {delivery.status === "cancelled" && delivery.cancelled_at
-                              ? ` • Cancelado em ${formatDate(delivery.cancelled_at)}`
-                              : ""}
+                        <div className="deliveryTopRow">
+                          <span className={`statusBadge status-${delivery.status}`}>
+                            {delivery.status === "pending" && "Pendente"}
+                            {delivery.status === "notified" && "Avisado"}
+                            {delivery.status === "picked_up" && "Retirado"}
+                            {delivery.status === "cancelled" && "Cancelado"}
                           </span>
+
+                          <div className="deliveryMain">
+                            <div className="deliveryPhoto">
+                              {packagePhotoUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={packagePhotoUrl}
+                                  alt={`Foto da encomenda de ${delivery.resident_name}`}
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="deliveryPhotoEmpty" aria-hidden="true">
+                                  <Package size={18} />
+                                  <span>Sem foto</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="deliveryItemInfo">
+                              <h3>{delivery.resident_name}</h3>
+                              <p>
+                                Unidade {delivery.apartment}
+                                {delivery.carrier ? ` • ${delivery.carrier}` : ""}
+                                {delivery.resident_phone ? ` • Contato ${delivery.resident_phone}` : ""}
+                                {delivery.description ? ` • ${delivery.description}` : ""}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="deliveryMeta">
+                            <span>
+                              Recebido em {formatDate(delivery.received_at)}
+                              {delivery.status === "cancelled" && delivery.cancelled_at
+                                ? ` • Cancelado em ${formatDate(delivery.cancelled_at)}`
+                                : ""}
+                            </span>
+                          </div>
                         </div>
 
                         {hasActions ? (

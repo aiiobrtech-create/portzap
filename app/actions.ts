@@ -983,9 +983,7 @@ export async function markDeliveryNotified(formData: FormData) {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("deliveries")
-      .select(
-        "id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes, package_photo_url",
-      )
+      .select("id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes")
       .eq("id", parsed.id)
       .eq("condominium_id", activeCondominium.id)
       .single();
@@ -1011,7 +1009,7 @@ export async function markDeliveryNotified(formData: FormData) {
 
     let pickupLink: Awaited<ReturnType<typeof buildPickupLinkForDelivery>> | null = null;
     let qrImageUrl: string | null = null;
-    const packagePhotoUrl = data.package_photo_url ?? extractPackagePhotoUrlFromNotes(data.internal_notes);
+    const packagePhotoUrl = extractPackagePhotoUrlFromNotes(data.internal_notes);
     let pickupCode: string | null = null;
 
     try {

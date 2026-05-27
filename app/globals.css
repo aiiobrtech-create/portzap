@@ -1810,18 +1810,30 @@ button {
 }
 
 .deliveryItem {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.deliveryTopRow {
   align-items: center;
   display: grid;
   gap: 12px;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 46px;
-  padding: 8px 12px;
+  min-width: 0;
+}
+
+.deliveryMain {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 84px minmax(0, 1fr);
+  min-width: 0;
 }
 
 .deliveryItemInfo {
-  align-items: baseline;
-  display: flex;
-  gap: 8px;
+  display: grid;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -1831,8 +1843,13 @@ button {
 }
 
 .deliveryItemInfo h3,
-.deliveryItemInfo p,
 .deliveryMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deliveryItemInfo p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1844,6 +1861,38 @@ button {
   font-size: 0.88rem;
   gap: 8px;
   min-width: 0;
+}
+
+.deliveryPhoto {
+  aspect-ratio: 1 / 1;
+  background: linear-gradient(180deg, rgba(31, 83, 201, 0.12), rgba(16, 195, 117, 0.06));
+  border: 1px solid rgba(31, 83, 201, 0.12);
+  border-radius: 18px;
+  overflow: hidden;
+  position: relative;
+}
+
+.deliveryPhoto img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.deliveryPhotoEmpty {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
+  height: 100%;
+  justify-items: center;
+  padding: 12px;
+  text-align: center;
+}
+
+.deliveryPhotoEmpty span {
+  font-size: 0.76rem;
+  line-height: 1.2;
 }
 
 .deliveryActions {
@@ -2316,7 +2365,17 @@ button {
 
   .deliveryItem {
     gap: 10px;
-    grid-template-columns: auto minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .deliveryTopRow {
+    gap: 10px;
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .deliveryMain {
+    grid-template-columns: 72px minmax(0, 1fr);
   }
 
   .deliveryMeta {
