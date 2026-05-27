@@ -13,6 +13,8 @@ export type DeliveryRecord = {
   apartment: string;
   carrier: string | null;
   description: string | null;
+  package_photo_url: string | null;
+  internal_notes: string | null;
   status: DeliveryStatus;
   created_at: string;
   received_at: string;
@@ -27,12 +29,26 @@ export type DeliveryListFilters = {
   status?: DeliveryStatus | "all";
 };
 
+function extractPackagePhotoUrlFromNotes(internalNotes: string | null) {
+  if (!internalNotes) {
+    return null;
+  }
+
+  const match = internalNotes.match(/(?:^|\n)\s*Foto:\s*(https?:\/\/\S+)/i);
+
+  return match?.[1] ?? null;
+}
+
+export function getDeliveryPackagePhotoUrl(delivery: Pick<DeliveryRecord, "package_photo_url" | "internal_notes">) {
+  return delivery.package_photo_url ?? extractPackagePhotoUrlFromNotes(delivery.internal_notes);
+}
+
 export async function listRecentDeliveries(limit = 8, filters: DeliveryListFilters = {}) {
   const supabase = createSupabaseAdminClient();
   let query = supabase
     .from("deliveries")
     .select(
-      "id, resident_name, resident_phone, apartment, carrier, description, status, created_at, received_at, notified_at, picked_up_at, cancelled_at",
+      "id, resident_name, resident_phone, apartment, carrier, description, package_photo_url, internal_notes, status, created_at, received_at, notified_at, picked_up_at, cancelled_at",
     )
     .order("received_at", { ascending: false })
     .limit(limit);

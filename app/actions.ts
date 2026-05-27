@@ -303,12 +303,14 @@ function buildNotificationMessage(input: {
   apartment: string;
   carrier?: string;
   description?: string;
-  photoUrl?: string | null;
+  packagePhotoUrl?: string | null;
+  qrImageUrl?: string | null;
   pickupCode?: string | null;
 }) {
   const detail = input.description ? ` Item: ${input.description}.` : "";
   const carrier = input.carrier ? ` Transportadora: ${input.carrier}.` : "";
-  const photo = input.photoUrl ? " QR da retirada anexado." : "";
+  const packagePhoto = input.packagePhotoUrl ? " Foto da encomenda anexada." : "";
+  const qrPhoto = input.qrImageUrl ? " QR da retirada anexado." : "";
   const code = input.pickupCode ? ` Código manual: ${input.pickupCode}.` : "";
 
   return [
@@ -316,7 +318,8 @@ function buildNotificationMessage(input: {
     `Sua encomenda chegou na portaria da unidade ${input.apartment}.`,
     carrier,
     detail,
-    photo,
+    packagePhoto,
+    qrPhoto,
     code,
     "Retire quando for conveniente.",
   ]
@@ -331,52 +334,78 @@ async function notifyResident(input: {
   apartment: string;
   carrier?: string;
   description?: string;
-  photoUrl?: string | null;
+  packagePhotoUrl?: string | null;
+  qrImageUrl?: string | null;
   pickupCode?: string | null;
 }) {
   const normalizedPhone = normalizePhone(input.residentPhone);
   const message = buildNotificationMessage(input);
   const evolution = new EvolutionClient();
-  let response: unknown;
-  let deliveryMode: "image" | "text" = "text";
+  const responses: Array<{ kind: string; response: unknown }> = [];
+  const errors: string[] = [];
 
-  if (input.photoUrl) {
+  const sendMedia = async (kind: string, imageUrl: string, caption: string) => {
     try {
-      response = await evolution.sendImage({
+      const response = await evolution.sendImage({
         phone: normalizedPhone,
-        imageUrl: input.photoUrl,
-        caption: message,
+        imageUrl,
+        caption,
       });
-      deliveryMode = "image";
+      responses.push({ kind, response });
     } catch (imageError) {
-      const fallbackMessage = message;
-      response = await evolution.sendText({
-        phone: normalizedPhone,
-        message: fallbackMessage,
-      });
-      deliveryMode = "text";
-
-      return {
-        normalizedPhone,
-        message: fallbackMessage,
-        response,
-        deliveryMode,
-        fallbackError: imageError instanceof Error ? imageError.message : "Falha inesperada ao enviar imagem.",
-      } satisfies NotificationPayload;
+      errors.push(imageError instanceof Error ? imageError.message : `Falha inesperada ao enviar ${kind}.`);
     }
-  } else {
-    response = await evolution.sendText({
+  };
+
+  if (input.packagePhotoUrl) {
+    await sendMedia("foto da encomenda", input.packagePhotoUrl, message);
+  }
+
+  if (input.qrImageUrl) {
+    await sendMedia(
+      "qr da retirada",
+      input.qrImageUrl,
+      input.packagePhotoUrl ? "QR de retirada." : message,
+    );
+  }
+
+  if (responses.length === 0) {
+    const response = await evolution.sendText({
       phone: normalizedPhone,
       message,
     });
+
+    return {
+      normalizedPhone,
+      message,
+      response,
+      deliveryMode: "text",
+      fallbackError: errors[0] ?? undefined,
+    } satisfies NotificationPayload;
   }
 
   return {
     normalizedPhone,
     message,
-    response,
-    deliveryMode,
+    response:
+      responses.length === 1
+        ? responses[0].response
+        : {
+            messages: responses,
+          },
+    deliveryMode: "image",
+    fallbackError: errors[0] ?? undefined,
   } satisfies NotificationPayload;
+}
+
+function extractPackagePhotoUrlFromNotes(internalNotes?: string | null) {
+  if (!internalNotes) {
+    return null;
+  }
+
+  const match = internalNotes.match(/(?:^|\n)\s*Foto:\s*(https?:\/\/\S+)/i);
+
+  return match?.[1] ?? null;
 }
 
 async function createStatusHistoryEntry(input: {
@@ -764,6 +793,7 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
 
     const photoFile = formData.get("photo");
     let qrImageUrl: string | null = null;
+    let packagePhotoUrl: string | null = null;
     let pickupCode: string | null = null;
     const { data, error } = await supabase
       .from("deliveries")
@@ -792,20 +822,21 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
     }
 
     if (photoFile instanceof File && photoFile.size > 0) {
-      const photoUrl = await uploadDeliveryPhoto({
+      packagePhotoUrl = await uploadDeliveryPhoto({
         condominiumId: activeCondominium.id,
         deliveryId: data.id,
         file: photoFile,
         purpose: "package",
       });
 
-      if (photoUrl) {
-        const notesWithPhoto = [parsed.internalNotes?.trim(), `Foto: ${photoUrl}`]
+      if (packagePhotoUrl) {
+        const notesWithPhoto = [parsed.internalNotes?.trim(), `Foto: ${packagePhotoUrl}`]
           .filter(Boolean)
           .join("\n");
         const { error: photoUpdateError } = await supabase
           .from("deliveries")
           .update({
+            package_photo_url: packagePhotoUrl,
             internal_notes: notesWithPhoto,
           })
           .eq("id", data.id)
@@ -843,7 +874,8 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           apartment: resolvedApartment,
           carrier: parsed.carrier,
           description: parsed.description,
-          photoUrl: qrImageUrl,
+          packagePhotoUrl,
+          qrImageUrl,
           pickupCode,
         });
 
@@ -854,6 +886,7 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
           requestPayload: {
             phone: notification.normalizedPhone,
             message: notification.message,
+            packagePhotoUrl,
             qrImageUrl,
             pickupCode,
             deliveryMode: notification.deliveryMode ?? "text",
@@ -899,9 +932,11 @@ export async function createDelivery(_prevState: DeliveryActionState, formData: 
               apartment: resolvedApartment,
               carrier: parsed.carrier,
               description: parsed.description,
-              photoUrl: qrImageUrl,
+              packagePhotoUrl,
+              qrImageUrl,
               pickupCode,
             }),
+            packagePhotoUrl,
             qrImageUrl,
             pickupCode,
           },
@@ -948,7 +983,9 @@ export async function markDeliveryNotified(formData: FormData) {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("deliveries")
-      .select("id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes")
+      .select(
+        "id, resident_name, resident_phone, apartment, carrier, description, status, internal_notes, package_photo_url",
+      )
       .eq("id", parsed.id)
       .eq("condominium_id", activeCondominium.id)
       .single();
@@ -974,6 +1011,7 @@ export async function markDeliveryNotified(formData: FormData) {
 
     let pickupLink: Awaited<ReturnType<typeof buildPickupLinkForDelivery>> | null = null;
     let qrImageUrl: string | null = null;
+    const packagePhotoUrl = data.package_photo_url ?? extractPackagePhotoUrlFromNotes(data.internal_notes);
     let pickupCode: string | null = null;
 
     try {
@@ -993,7 +1031,8 @@ export async function markDeliveryNotified(formData: FormData) {
         apartment: data.apartment,
         carrier: data.carrier ?? undefined,
         description: data.description ?? undefined,
-        photoUrl: qrImageUrl,
+        packagePhotoUrl,
+        qrImageUrl,
         pickupCode,
       });
 
@@ -1004,6 +1043,7 @@ export async function markDeliveryNotified(formData: FormData) {
         requestPayload: {
           phone: notification.normalizedPhone,
           message: notification.message,
+          packagePhotoUrl,
           qrImageUrl,
           pickupCode,
         },
@@ -1025,9 +1065,11 @@ export async function markDeliveryNotified(formData: FormData) {
             apartment: data.apartment,
             carrier: data.carrier ?? undefined,
             description: data.description ?? undefined,
-            photoUrl: null,
+            packagePhotoUrl,
+            qrImageUrl: null,
             pickupCode,
           }),
+          packagePhotoUrl,
           pickupCode,
         },
         errorMessage:
