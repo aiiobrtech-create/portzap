@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Package, X } from "lucide-react";
-import { markDeliveryCancelled, markDeliveryNotified } from "@/app/actions";
+import { markDeliveryNotified } from "@/app/actions";
 
 type RecentDeliveriesListProps = {
   deliveries: DeliveryRecord[];
@@ -94,6 +94,19 @@ export function RecentDeliveriesList({ deliveries, condominiumId }: RecentDelive
         {deliveries.map((delivery) => {
           const hasActions = delivery.status === "pending" || delivery.status === "notified";
           const packagePhotoUrl = getDeliveryPackagePhotoUrl(delivery);
+          const statusBadge = (
+            <span
+              className={`statusBadge status-${delivery.status}${
+                delivery.status === "cancelled" ||
+                delivery.status === "picked_up" ||
+                delivery.status === "notified"
+                  ? " statusBadgeRight"
+                  : ""
+              }`}
+            >
+              {formatStatusLabel(delivery.status)}
+            </span>
+          );
 
           return (
             <article key={delivery.id} className="deliveryItem">
@@ -103,9 +116,11 @@ export function RecentDeliveriesList({ deliveries, condominiumId }: RecentDelive
                 onClick={() => setSelectedDelivery(delivery)}
               >
                 <div className="deliveryTopRow">
-                  <span className={`statusBadge status-${delivery.status}`}>
-                    {formatStatusLabel(delivery.status)}
-                  </span>
+                  {delivery.status === "cancelled" ||
+                  delivery.status === "picked_up" ||
+                  delivery.status === "notified"
+                    ? null
+                    : statusBadge}
 
                   <div className="deliveryMain">
                     <div className="deliveryPhoto">
@@ -129,46 +144,37 @@ export function RecentDeliveriesList({ deliveries, condominiumId }: RecentDelive
                       <p>
                         Unidade {delivery.apartment}
                         {delivery.carrier ? ` • ${delivery.carrier}` : ""}
-                        {delivery.resident_phone ? ` • Contato ${delivery.resident_phone}` : ""}
-                        {delivery.description ? ` • ${delivery.description}` : ""}
                       </p>
+                      <span className="deliveryItemInfoMeta">
+                        Recebido em {formatDate(delivery.received_at)}
+                        {delivery.status === "cancelled" && delivery.cancelled_at
+                          ? ` • Cancelado em ${formatDate(delivery.cancelled_at)}`
+                          : ""}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="deliveryMeta">
-                    <span>
-                      Recebido em {formatDate(delivery.received_at)}
-                      {delivery.status === "cancelled" && delivery.cancelled_at
-                        ? ` • Cancelado em ${formatDate(delivery.cancelled_at)}`
-                        : ""}
-                    </span>
-                  </div>
+                  {delivery.status === "cancelled" ||
+                  delivery.status === "picked_up" ||
+                  delivery.status === "notified"
+                    ? statusBadge
+                    : null}
+
+                  {hasActions ? (
+                    <div className="deliveryActions">
+                      {delivery.status === "pending" ? (
+                        <form action={markDeliveryNotified}>
+                          <input type="hidden" name="id" value={delivery.id} />
+                          <input type="hidden" name="condominiumId" value={condominiumId} />
+                          <button className="secondaryButton" type="submit">
+                            Avisar no WhatsApp
+                          </button>
+                        </form>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </button>
-
-              {hasActions ? (
-                <div className="deliveryActions">
-                  {delivery.status === "pending" ? (
-                    <form action={markDeliveryNotified}>
-                      <input type="hidden" name="id" value={delivery.id} />
-                      <input type="hidden" name="condominiumId" value={condominiumId} />
-                      <button className="secondaryButton" type="submit">
-                        Avisar no WhatsApp
-                      </button>
-                    </form>
-                  ) : null}
-
-                  {delivery.status === "pending" || delivery.status === "notified" ? (
-                    <form action={markDeliveryCancelled}>
-                      <input type="hidden" name="id" value={delivery.id} />
-                      <input type="hidden" name="condominiumId" value={condominiumId} />
-                      <button className="ghostButton dangerButton" type="submit">
-                        Cancelar registro
-                      </button>
-                    </form>
-                  ) : null}
-                </div>
-              ) : null}
             </article>
           );
         })}
@@ -261,12 +267,6 @@ export function RecentDeliveriesList({ deliveries, condominiumId }: RecentDelive
                         <dd>{formatStatusLabel(selectedDelivery.status)}</dd>
                       </div>
                     </dl>
-
-                    <div className="deliveryModalActions">
-                      <button type="button" className="ghostButton" onClick={() => setSelectedDelivery(null)}>
-                        Fechar
-                      </button>
-                    </div>
                   </div>
                 </div>
               </div>

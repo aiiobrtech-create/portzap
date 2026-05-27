@@ -857,7 +857,9 @@ button {
   border: 0;
   box-shadow: 0 8px 18px rgba(31, 83, 201, 0.16);
   color: white;
-  min-width: 180px;
+  min-width: 0;
+  padding-inline: 14px;
+  white-space: nowrap;
 }
 
 .toolbarButton:hover {
@@ -2251,8 +2253,9 @@ button {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .deliveryMain {
@@ -2270,12 +2273,14 @@ button {
 }
 
 .deliveryItemInfo p,
-.deliveryMeta {
+.deliveryMeta,
+.deliveryItemInfoMeta {
   margin: 0;
 }
 
 .deliveryItemInfo h3,
-.deliveryMeta {
+.deliveryMeta,
+.deliveryItemInfoMeta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2293,6 +2298,19 @@ button {
   font-size: 0.88rem;
   gap: 8px;
   min-width: 0;
+  max-width: 260px;
+  justify-self: end;
+}
+
+.statusBadgeRight {
+  grid-column: 4;
+  justify-self: end;
+}
+
+.deliveryItemInfoMeta {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .deliveryPhoto {
@@ -2332,10 +2350,10 @@ button {
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;
-  grid-column: 1 / -1;
   justify-content: flex-end;
   min-width: 0;
   overflow-x: auto;
+  justify-self: end;
 }
 
 .deliveryActions form {
@@ -2604,11 +2622,6 @@ button {
   grid-column: 1 / -1;
 }
 
-.deliveryModalActions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .emptyState strong {
   display: block;
   font-size: 1rem;
@@ -2747,7 +2760,7 @@ button {
   }
 
   .queueToolbar {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr) auto;
   }
 }
 
@@ -2901,7 +2914,7 @@ button {
   }
 
   .queueToolbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.75fr) auto;
   }
 
   .queueToolbarCompact {
@@ -2999,9 +3012,12 @@ button {
   }
 
   .deliveryTopRow {
-    gap: 10px;
-    grid-template-columns: 1fr;
-    justify-items: start;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .statusBadgeRight {
+    grid-column: 3;
   }
 
   .deliveryMain {
@@ -3010,6 +3026,10 @@ button {
 
   .deliveryMeta {
     display: none;
+  }
+
+  .deliveryItemInfoMeta {
+    white-space: nowrap;
   }
 
   .deliveryActions {
