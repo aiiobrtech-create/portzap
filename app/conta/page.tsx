@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Building2, Mail, Settings2, ShieldCheck, UserCircle2 } from "lucide-react";
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { updateOperatorProfile } from "@/app/security-actions";
 import { requireOperatorContext } from "@/lib/operator-auth";
 
@@ -47,6 +48,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
           <p>{feedbackMessage}</p>
         </section>
       ) : null}
+      <FeedbackQueryCleanup />
 
       <section className="contentGrid residentsContentGrid">
         <div className="panel">

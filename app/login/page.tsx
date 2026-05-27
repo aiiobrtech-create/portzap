@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { ArrowRight, QrCode, ShieldCheck, Archive } from "lucide-react";
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { loginOperator } from "@/app/security-actions";
 import { getCurrentOperatorContext } from "@/lib/operator-auth";
 import logoClean from "../../logo/logo-clean.png";
@@ -73,6 +74,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 <p>{feedbackMessage}</p>
               </section>
             ) : null}
+            <FeedbackQueryCleanup />
 
             <form action={loginOperator} className="deliveryForm">
               <label className="field">

@@ -1,17 +1,10 @@
-import { Building2, Home, Mail, Phone, Search, Users } from "lucide-react";
-import {
-  createResident,
-  createUnit,
-  createUnitsBatch,
-  toggleResidentActive,
-  toggleUnitActive,
-  updateResident,
-  updateUnit,
-} from "@/app/actions";
+import { Building2, Home, Phone, Search, Users } from "lucide-react";
+import { createUnit, createUnitsBatch } from "@/app/actions";
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { DropdownSelect } from "@/app/dropdown-select";
-import { PhoneInput } from "@/app/form-fields";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { listResidents, listUnits } from "@/lib/residents";
+import { UnitDisclosureCard } from "@/app/moradores/unit-disclosure-card";
 
 type ResidentsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -21,40 +14,71 @@ function getSingleParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function getConfiguredBlockType(towerPrefix: string | null | undefined) {
+  const normalized = towerPrefix?.trim().toLowerCase();
+
+  if (normalized?.startsWith("bloco")) {
+    return "bloco" as const;
+  }
+
+  return "torre" as const;
+}
+
+function getFloorBounds(floorsPerTower: number | null | undefined, floorStart: number | null | undefined) {
+  if (typeof floorsPerTower !== "number" || typeof floorStart !== "number") {
+    return null;
+  }
+
+  return {
+    min: floorStart,
+    max: floorStart + floorsPerTower - 1,
+  };
+}
+
 export default async function ResidentsPage({ searchParams }: ResidentsPageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const feedbackMessage = getSingleParam(resolvedSearchParams.message)?.trim() ?? "";
   const feedbackTone = getSingleParam(resolvedSearchParams.tone);
   const queryParam = getSingleParam(resolvedSearchParams.q)?.trim().toLowerCase() ?? "";
   const { activeCondominium } = await resolveCondominiumContext();
+  const configuredBlockType = getConfiguredBlockType(activeCondominium?.tower_prefix);
+  const floorBounds = getFloorBounds(activeCondominium?.floors_per_tower, activeCondominium?.floor_start);
+  const maxTowerLetter =
+    activeCondominium?.tower_count && activeCondominium.tower_naming === "letters"
+      ? String.fromCharCode(65 + activeCondominium.tower_count - 1)
+      : "";
+  const blockLetterPattern = maxTowerLetter ? `^[A-${maxTowerLetter}]$` : undefined;
   const [units, residents] = await Promise.all([
     listUnits(100, activeCondominium?.id),
     listResidents(100, activeCondominium?.id),
   ]);
+  const residentsByUnitId = new Map<string, typeof residents>();
+  residents.forEach((resident) => {
+    if (!resident.unit_id) {
+      return;
+    }
+
+    const currentResidents = residentsByUnitId.get(resident.unit_id) ?? [];
+    currentResidents.push(resident);
+    residentsByUnitId.set(resident.unit_id, currentResidents);
+  });
   const filteredUnits = queryParam
     ? units.filter((unit) =>
-        [unit.label, unit.block ?? "", unit.floor ?? ""].some((value) =>
+        [
+          unit.label,
+          unit.block ?? "",
+          unit.floor ?? "",
+          ...(residentsByUnitId.get(unit.id) ?? []).flatMap((resident) => [
+            resident.full_name,
+            resident.phone ?? "",
+            resident.email ?? "",
+          ]),
+        ].some((value) =>
           value.toLowerCase().includes(queryParam),
         ),
       )
     : units;
-  const filteredResidents = queryParam
-    ? residents.filter((resident) =>
-        [
-          resident.full_name,
-          resident.phone ?? "",
-          resident.email ?? "",
-          resident.units?.label ?? "",
-          resident.units?.block ?? "",
-        ].some((value) => value.toLowerCase().includes(queryParam)),
-      )
-    : residents;
   const occupiedUnitIds = new Set(residents.map((resident) => resident.unit_id).filter(Boolean));
-  const residentsByUnitId = new Map(
-    residents
-      .filter((resident) => resident.unit_id)
-      .map((resident) => [resident.unit_id, resident]),
-  );
   const vacantUnits = units.filter((unit) => !occupiedUnitIds.has(unit.id));
   const residentsWithoutWhatsapp = residents.filter((resident) => !resident.phone?.trim());
 
@@ -73,6 +97,7 @@ export default async function ResidentsPage({ searchParams }: ResidentsPageProps
           <p>{feedbackMessage}</p>
         </section>
       ) : null}
+      <FeedbackQueryCleanup />
 
       {!activeCondominium ? (
         <section className="emptyState">
@@ -226,89 +251,66 @@ export default async function ResidentsPage({ searchParams }: ResidentsPageProps
 
                 <form action={createUnit} className="deliveryForm">
                   <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                  <div className="fieldRow">
-                    <label className="field">
-                      <span>Unidade</span>
-                      <input name="label" maxLength={20} placeholder="Ex.: 804B" required />
-                    </label>
-
-                    <label className="field">
-                      <span>Bloco</span>
-                      <input name="block" maxLength={40} placeholder="Ex.: Torre A" />
-                    </label>
-                  </div>
-
-                  <label className="field">
-                    <span>Andar</span>
-                    <input name="floor" maxLength={40} placeholder="Ex.: 8" />
-                  </label>
-
-                  <button className="primaryButton" type="submit">
-                    Cadastrar unidade
-                  </button>
-                </form>
-              </div>
-
-              <div className="panel">
-                <div className="panelHeader">
-                  <div>
-                    <h2>Novo morador</h2>
-                  </div>
-                </div>
-
-                {units.length === 0 ? (
-                  <div className="emptyState">
-                    <strong>Nenhuma unidade cadastrada</strong>
-                  </div>
-                ) : (
-                  <form action={createResident} className="deliveryForm">
-                    <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                    <label className="field">
-                      <span>Nome completo</span>
-                      <input name="fullName" maxLength={120} placeholder="Ex.: Ana Martins" required />
-                    </label>
-
-                    <div className="fieldRow">
-                      <label className="field">
-                        <span>WhatsApp</span>
-                        <PhoneInput name="phone" placeholder="Ex.: (11) 99999-0000" />
-                      </label>
-
-                      <label className="field">
-                        <span>E-mail</span>
-                        <input
-                          name="email"
-                          type="email"
-                          inputMode="email"
-                          autoComplete="email"
-                          maxLength={120}
-                          placeholder="Ex.: ana@email.com"
-                        />
-                      </label>
-                    </div>
-
-                    <label className="field">
-                      <span>Unidade</span>
+                  <div className="unitInlineGrid unitCreateGrid">
+                    <label className="field compactField">
+                      <span>Tipo</span>
                       <DropdownSelect
-                        name="unitId"
-                        defaultValue=""
-                        placeholder="Selecione uma unidade"
+                        name="blockType"
+                        defaultValue={configuredBlockType}
+                        disabled={Boolean(activeCondominium?.tower_prefix)}
                         options={[
-                          { value: "", label: "Selecione uma unidade" },
-                          ...units.map((unit) => ({
-                            value: unit.id,
-                            label: `${unit.label}${unit.block ? ` • ${unit.block}` : ""}${unit.floor ? ` • ${unit.floor}º andar` : ""}`,
-                          })),
+                          { value: "torre", label: "Torre" },
+                          { value: "bloco", label: "Bloco" },
                         ]}
+                      />
+                    </label>
+
+                    <label className="field compactField">
+                      <span>Letra</span>
+                      <input
+                        className="uppercaseInput"
+                        name="blockLetter"
+                        maxLength={1}
+                        pattern={blockLetterPattern}
+                        placeholder="A"
                         required
                       />
                     </label>
 
-                    <button className="primaryButton" type="submit">
-                      Cadastrar morador
+                    <label className="field compactField">
+                      <span>Andar</span>
+                      <input
+                        name="floor"
+                        type="number"
+                        min={floorBounds?.min ?? 0}
+                        max={floorBounds?.max ?? 200}
+                        step="1"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="Ex.: 8"
+                        required
+                      />
+                    </label>
+
+                    <label className="field compactField">
+                      <span>Unidade</span>
+                      <input
+                        name="unitNumber"
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="Ex.: 804"
+                        required
+                      />
+                    </label>
+
+                    <button className="primaryButton unitInlineSave" type="submit">
+                      Cadastrar unidade
                     </button>
-                  </form>
-                )}
+                  </div>
+                </form>
               </div>
             </div>
 
@@ -327,219 +329,18 @@ export default async function ResidentsPage({ searchParams }: ResidentsPageProps
                 ) : (
                   <div className="unitDisclosureList">
                     {filteredUnits.map((unit) => {
-                      const resident = residentsByUnitId.get(unit.id);
+                      const unitResidents = residentsByUnitId.get(unit.id) ?? [];
 
                       return (
-                        <details key={unit.id} className="unitDisclosure">
-                          <summary className="unitSummary">
-                            <span className="metricIcon metricAccentBlue">
-                              <Home size={16} />
-                            </span>
-                            <strong>{unit.label}</strong>
-                            <span>{unit.block ?? "Sem bloco"}</span>
-                            <span>{unit.floor ? `${unit.floor}º andar` : "Andar nao informado"}</span>
-                            {resident ? (
-                              <span className="inlineMutedPill">{resident.full_name}</span>
-                            ) : (
-                              <span className="inlineWarning">Sem morador</span>
-                            )}
-                          </summary>
-
-                          <div className="unitDisclosureBody">
-                            {resident ? (
-                              <div className="residentMeta unitResidentMeta">
-                                <span>
-                                  <Users size={15} />
-                                  {resident.full_name}
-                                </span>
-                                <span>
-                                  <Phone size={15} />
-                                  {resident.phone ?? "Sem WhatsApp informado"}
-                                </span>
-                                <span>
-                                  <Mail size={15} />
-                                  {resident.email ?? "Sem e-mail informado"}
-                                </span>
-                              </div>
-                            ) : (
-                              <form action={createResident} className="inlineForm unitResidentForm">
-                                <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                                <input type="hidden" name="unitId" value={unit.id} />
-                                <label className="field compactField">
-                                  <span>Morador responsável</span>
-                                  <input name="fullName" maxLength={120} placeholder="Ex.: Ana Martins" required />
-                                </label>
-                                <div className="fieldRow">
-                                  <label className="field compactField">
-                                    <span>WhatsApp</span>
-                                    <PhoneInput name="phone" placeholder="Ex.: (11) 99999-0000" />
-                                  </label>
-                                  <label className="field compactField">
-                                    <span>E-mail</span>
-                                    <input
-                                      name="email"
-                                      type="email"
-                                      inputMode="email"
-                                      autoComplete="email"
-                                      maxLength={120}
-                                      placeholder="Ex.: ana@email.com"
-                                    />
-                                  </label>
-                                </div>
-                                <div className="inlineFormActions">
-                                  <button className="secondaryButton" type="submit">
-                                    Cadastrar morador
-                                  </button>
-                                </div>
-                              </form>
-                            )}
-
-                            <form action={updateUnit} className="inlineForm">
-                              <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                              <input type="hidden" name="id" value={unit.id} />
-                              <div className="fieldRow">
-                                <label className="field compactField">
-                                  <span>Unidade</span>
-                                  <input name="label" maxLength={20} defaultValue={unit.label} required />
-                                </label>
-                                <label className="field compactField">
-                                  <span>Bloco</span>
-                                  <input name="block" maxLength={40} defaultValue={unit.block ?? ""} />
-                                </label>
-                              </div>
-                              <label className="field compactField">
-                                <span>Andar</span>
-                                <input name="floor" maxLength={40} defaultValue={unit.floor ?? ""} />
-                              </label>
-                              <div className="inlineFormActions">
-                                <button className="secondaryButton" type="submit">
-                                  Salvar unidade
-                                </button>
-                              </div>
-                            </form>
-
-                            <form action={toggleUnitActive} className="inlineFormActions">
-                              <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                              <input type="hidden" name="id" value={unit.id} />
-                              <input type="hidden" name="nextState" value={unit.is_active ? "false" : "true"} />
-                              <button className="ghostButton" type="submit">
-                                {unit.is_active ? "Inativar unidade" : "Reativar unidade"}
-                              </button>
-                            </form>
-                          </div>
-                        </details>
+                        <UnitDisclosureCard
+                          key={unit.id}
+                          condominiumId={activeCondominium.id}
+                          layoutConfig={activeCondominium}
+                          unit={unit}
+                          residents={unitResidents}
+                        />
                       );
                     })}
-                  </div>
-                )}
-              </div>
-
-              <div className="panel">
-                <div className="panelHeader">
-                  <div>
-                    <h2>Moradores cadastrados</h2>
-                  </div>
-                </div>
-
-                {filteredResidents.length === 0 ? (
-                  <div className="emptyState">
-                    <strong>Nenhum morador encontrado</strong>
-                  </div>
-                ) : (
-                  <div className="stackGrid residentGrid">
-                    {filteredResidents.map((resident) => (
-                      <article key={resident.id} className="panel residentCard">
-                        <div className="residentCardTop">
-                          <span className="metricIcon metricAccentBlue">
-                            <Users size={16} />
-                          </span>
-                          <span className="residentUnit">
-                            {resident.units?.label ? `Unidade ${resident.units.label}` : "Sem unidade"}
-                          </span>
-                        </div>
-                        <h2>{resident.full_name}</h2>
-                        <div className="residentMeta">
-                          <span>
-                            <Phone size={15} />
-                            {resident.phone ?? "Sem WhatsApp informado"}
-                          </span>
-                          {!resident.phone?.trim() ? (
-                            <span className="inlineWarning">Contato pendente</span>
-                          ) : null}
-                          <span>
-                            <Mail size={15} />
-                            {resident.email ?? "Sem e-mail informado"}
-                          </span>
-                          {resident.units ? (
-                            <span>
-                              <Building2 size={15} />
-                              {[resident.units.block, resident.units.floor ? `${resident.units.floor}º andar` : null]
-                                .filter(Boolean)
-                                .join(" • ") || "Unidade vinculada"}
-                            </span>
-                          ) : null}
-                          {!resident.is_active ? (
-                            <span className="inlineMutedPill">Inativo</span>
-                          ) : null}
-                        </div>
-
-                        <form action={updateResident} className="inlineForm">
-                          <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                          <input type="hidden" name="id" value={resident.id} />
-                          <label className="field compactField">
-                            <span>Nome</span>
-                            <input name="fullName" maxLength={120} defaultValue={resident.full_name} required />
-                          </label>
-                          <div className="fieldRow">
-                            <label className="field compactField">
-                              <span>WhatsApp</span>
-                              <PhoneInput name="phone" defaultValue={resident.phone ?? ""} />
-                            </label>
-                            <label className="field compactField">
-                              <span>E-mail</span>
-                              <input
-                                name="email"
-                                type="email"
-                                inputMode="email"
-                                autoComplete="email"
-                                maxLength={120}
-                                defaultValue={resident.email ?? ""}
-                              />
-                            </label>
-                          </div>
-                          <label className="field compactField">
-                            <span>Unidade</span>
-                            <DropdownSelect
-                              name="unitId"
-                              defaultValue={resident.unit_id ?? ""}
-                              placeholder="Selecione uma unidade"
-                              options={[
-                                { value: "", label: "Selecione uma unidade" },
-                                ...units.map((unit) => ({
-                                  value: unit.id,
-                                  label: `${unit.label}${unit.block ? ` • ${unit.block}` : ""}${unit.floor ? ` • ${unit.floor}º andar` : ""}`,
-                                })),
-                              ]}
-                              required
-                            />
-                          </label>
-                          <div className="inlineFormActions">
-                            <button className="secondaryButton" type="submit">
-                              Salvar morador
-                            </button>
-                          </div>
-                        </form>
-
-                        <form action={toggleResidentActive} className="inlineFormActions">
-                          <input type="hidden" name="condominiumId" value={activeCondominium.id} />
-                          <input type="hidden" name="id" value={resident.id} />
-                          <input type="hidden" name="nextState" value={resident.is_active ? "false" : "true"} />
-                          <button className="ghostButton" type="submit">
-                            {resident.is_active ? "Inativar morador" : "Reativar morador"}
-                          </button>
-                        </form>
-                      </article>
-                    ))}
                   </div>
                 )}
               </div>

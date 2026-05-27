@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { ScanPanel } from "@/app/retirada/scan-panel";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { listRecentDeliveries } from "@/lib/deliveries";
@@ -34,6 +35,9 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
     },
     new Map<string, typeof deliveries>(),
   );
+  const pickupUnits = Array.from(deliveriesByApartment.entries()).filter(([, apartmentDeliveries]) =>
+    apartmentDeliveries.some((delivery) => pickupTokens.has(delivery.id)),
+  );
 
   return (
     <main className="pageShell">
@@ -50,6 +54,7 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
           <p>{feedbackMessage}</p>
         </section>
       ) : null}
+      <FeedbackQueryCleanup />
 
       {!activeCondominium ? (
         <section className="emptyState">
@@ -64,7 +69,9 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
               </div>
             </div>
 
-            <ScanPanel initialToken={initialToken} />
+            <div id="validador">
+              <ScanPanel initialToken={initialToken} />
+            </div>
           </div>
 
           <div className="panel">
@@ -74,56 +81,60 @@ export default async function PickupValidationPage({ searchParams }: PickupValid
               </div>
             </div>
 
-            {deliveriesByApartment.size > 0 ? (
-              <div className="stackGrid batchPickupList">
-                {Array.from(deliveriesByApartment.entries()).map(([apartment, apartmentDeliveries]) => (
-                  <article key={apartment} className="batchPickupCard">
-                    <div>
-                      <strong>Unidade {apartment}</strong>
-                      <p>
-                        {apartmentDeliveries.length} encomenda
-                        {apartmentDeliveries.length > 1 ? "s" : ""} para retirar em conjunto.
-                      </p>
-                    </div>
-                    <Link href="/retirada" className="secondaryLinkButton">
-                      Validar por QR ou código
-                    </Link>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-
             {pickupTokens.size === 0 ? (
               <div className="emptyState">
                 <strong>Nenhum QR ativo</strong>
               </div>
             ) : (
-              <div className="stackGrid residentGrid">
-                {deliveries
-                  .filter((delivery) => pickupTokens.has(delivery.id))
-                  .map((delivery) => {
-                    const pickup = pickupTokens.get(delivery.id);
+              <div className="stackGrid batchPickupList">
+                {pickupUnits.map(([apartment, apartmentDeliveries]) => {
+                  const firstPickup = apartmentDeliveries
+                    .map((delivery) => pickupTokens.get(delivery.id))
+                    .find((pickup): pickup is NonNullable<typeof pickup> => Boolean(pickup));
 
-                    if (!pickup) {
-                      return null;
-                    }
+                  const residentNames = apartmentDeliveries
+                    .slice(0, 2)
+                    .map((delivery) => delivery.resident_name)
+                    .join(" • ");
+                  const extraCount = apartmentDeliveries.length - 2;
 
                     return (
-                      <article key={delivery.id} className="panel residentCard">
-                        <div className="residentCardTop">
-                          <span className="residentUnit">Unidade {delivery.apartment}</span>
+                      <article key={apartment} className="batchPickupCard pickupUnitCard">
+                        <div className="pickupUnitMain">
+                          <span className="pickupUnitKicker">Unidade</span>
+                          <strong>{apartment}</strong>
                         </div>
-                        <h2>{delivery.resident_name}</h2>
-                        <div className="residentMeta">
-                          <span>{delivery.description ?? "Encomenda sem descrição adicional"}</span>
-                          <span>
-                            Expira em{" "}
-                            {new Intl.DateTimeFormat("pt-BR", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            }).format(new Date(pickup.expires_at))}
-                          </span>
+
+                        <div className="pickupUnitMain pickupUnitWide">
+                          <span className="pickupUnitKicker">Moradores / itens</span>
+                          <strong>
+                            {residentNames}
+                            {extraCount > 0 ? ` +${extraCount}` : ""}
+                          </strong>
+                          <p>
+                            {apartmentDeliveries.length} encomenda
+                            {apartmentDeliveries.length > 1 ? "s" : ""} pendente
+                            {apartmentDeliveries.length > 1 ? "s" : ""}.
+                          </p>
                         </div>
+
+                        <div className="pickupUnitMain pickupUnitMetaBlock">
+                          <span className="pickupUnitKicker">Expiração</span>
+                          {firstPickup ? (
+                            <strong className="pickupUnitMeta">
+                              {new Intl.DateTimeFormat("pt-BR", {
+                                dateStyle: "short",
+                                timeStyle: "short",
+                              }).format(new Date(firstPickup.expires_at))}
+                            </strong>
+                          ) : (
+                            <strong className="pickupUnitMeta">Sem QR ativo</strong>
+                          )}
+                        </div>
+
+                        <Link href="#validador" className="secondaryLinkButton pickupUnitAction">
+                          Validar
+                        </Link>
                       </article>
                     );
                   })}

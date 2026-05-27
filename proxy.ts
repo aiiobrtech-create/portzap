@@ -1,14 +1,10 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
+import { getServerEnv } from "@/lib/env";
 import { ONBOARDING_COOKIE_NAME } from "@/lib/auth/session";
 
 const publicRoutes = ["/login", "/definir-senha"];
 const publicPrefixes = ["/_next", "/q/"];
-
-function hasSupabaseSessionCookie(request: NextRequest) {
-  return request.cookies
-    .getAll()
-    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
-}
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,27 +13,57 @@ export function proxy(request: NextRequest) {
     publicPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
     pathname === "/favicon.ico" ||
     /\.[a-zA-Z0-9]+$/.test(pathname);
-  const hasSession = hasSupabaseSessionCookie(request);
+  const env = getServerEnv();
+  const response = NextResponse.next({ request });
+  const supabase = createServerClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookieValues) {
+          cookieValues.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    },
+  );
+
+  const sessionResponse = supabase.auth.getUser();
   const onboardingState = request.cookies.get(ONBOARDING_COOKIE_NAME)?.value;
-  const needsOnboarding = hasSession && onboardingState !== "done";
 
-  if (!hasSession && !isPublicRoute) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
+  return sessionResponse.then(({ data, error }) => {
+    const hasSession = !!data.user && !error;
+    const needsOnboarding = hasSession && onboardingState !== "done";
+    const withAuthCookies = (nextResponse: NextResponse) => {
+      response.cookies.getAll().forEach((cookie) => {
+        nextResponse.cookies.set(cookie.name, cookie.value, cookie);
+      });
 
-  if (hasSession && publicRoutes.includes(pathname)) {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
+      return nextResponse;
+    };
 
-  if (needsOnboarding && pathname !== "/primeiro-acesso") {
-    return NextResponse.redirect(new URL("/primeiro-acesso", request.url));
-  }
+    if (!hasSession && !isPublicRoute) {
+      return withAuthCookies(NextResponse.redirect(new URL("/login", request.url)));
+    }
 
-  if (!needsOnboarding && pathname === "/primeiro-acesso") {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
+    if (hasSession && publicRoutes.includes(pathname)) {
+      return withAuthCookies(NextResponse.redirect(new URL("/", request.url)));
+    }
 
-  return NextResponse.next();
+    if (needsOnboarding && pathname !== "/primeiro-acesso") {
+      return withAuthCookies(NextResponse.redirect(new URL("/primeiro-acesso", request.url)));
+    }
+
+    if (!needsOnboarding && pathname === "/primeiro-acesso") {
+      return withAuthCookies(NextResponse.redirect(new URL("/", request.url)));
+    }
+
+    return withAuthCookies(response);
+  });
 }
 
 export const config = {

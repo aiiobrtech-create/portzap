@@ -48,7 +48,7 @@ export async function listRecentDeliveries(limit = 8, filters: DeliveryListFilte
   let query = supabase
     .from("deliveries")
     .select(
-      "id, resident_name, resident_phone, apartment, carrier, description, internal_notes, status, created_at, received_at, notified_at, picked_up_at, cancelled_at",
+      "id, resident_name, resident_phone, apartment, carrier, description, package_photo_url, internal_notes, status, created_at, received_at, notified_at, picked_up_at, cancelled_at",
     )
     .order("received_at", { ascending: false })
     .limit(limit);

@@ -16,6 +16,13 @@ create table if not exists public.condominiums (
   name text not null,
   slug text unique,
   contact_phone text,
+  tower_count integer,
+  floors_per_tower integer,
+  units_per_floor integer,
+  tower_naming text,
+  tower_prefix text,
+  floor_start integer,
+  unit_pattern text,
   is_active boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -75,6 +82,15 @@ alter table public.operator_users
 alter table public.operator_users
   drop column if exists password_hash,
   drop column if exists password_set_at;
+
+alter table public.condominiums
+  add column if not exists tower_count integer,
+  add column if not exists floors_per_tower integer,
+  add column if not exists units_per_floor integer,
+  add column if not exists tower_naming text,
+  add column if not exists tower_prefix text,
+  add column if not exists floor_start integer,
+  add column if not exists unit_pattern text;
 
 drop table if exists public.operator_sessions cascade;
 drop table if exists public.operator_password_setup_tokens cascade;

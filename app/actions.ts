@@ -37,9 +37,15 @@ const updateDeliveryStatusSchema = z.object({
 
 const createUnitSchema = z.object({
   condominiumId: z.string().uuid("Condominio invalido."),
-  label: z.string().trim().min(1, "Informe a unidade.").max(20, "Use ate 20 caracteres na unidade."),
-  block: z.string().trim().max(40).optional(),
-  floor: z.string().trim().max(40).optional(),
+  unitNumber: z.coerce.number().int().min(0, "Informe um numero de unidade valido.").max(99999, "Numero de unidade muito alto."),
+  blockType: z.enum(["torre", "bloco"]),
+  blockLetter: z
+    .string()
+    .trim()
+    .min(1, "Informe a letra da torre ou bloco.")
+    .max(1, "Use apenas uma letra.")
+    .regex(/^[a-zA-Z]$/, "Use apenas uma letra."),
+  floor: z.coerce.number().int().min(0, "Andar invalido.").max(200, "Andar muito alto."),
 });
 
 const createUnitsBatchSchema = z.object({
@@ -64,9 +70,15 @@ const createResidentSchema = z.object({
 const updateUnitSchema = z.object({
   condominiumId: z.string().uuid("Condominio invalido."),
   id: z.string().uuid("Unidade invalida."),
-  label: z.string().trim().min(1, "Informe a unidade.").max(20, "Use ate 20 caracteres na unidade."),
-  block: z.string().trim().max(40).optional(),
-  floor: z.string().trim().max(40).optional(),
+  unitNumber: z.coerce.number().int().min(0, "Informe um numero de unidade valido.").max(99999, "Numero de unidade muito alto."),
+  blockType: z.enum(["torre", "bloco"]),
+  blockLetter: z
+    .string()
+    .trim()
+    .min(1, "Informe a letra da torre ou bloco.")
+    .max(1, "Use apenas uma letra.")
+    .regex(/^[a-zA-Z]$/, "Use apenas uma letra."),
+  floor: z.coerce.number().int().min(0, "Andar invalido.").max(200, "Andar muito alto."),
 });
 
 const updateResidentSchema = z.object({
@@ -263,6 +275,83 @@ function getTowerToken(index: number, naming: "letters" | "numbers") {
   } while (current >= 0);
 
   return token;
+}
+
+function buildTowerTokenSet(towerCount: number, naming: "letters" | "numbers") {
+  return new Set(Array.from({ length: towerCount }, (_, index) => getTowerToken(index, naming).toUpperCase()));
+}
+
+function getConfiguredBlockType(towerPrefix: string | null | undefined) {
+  const normalized = towerPrefix?.trim().toLowerCase();
+
+  if (normalized?.startsWith("bloco")) {
+    return "bloco" as const;
+  }
+
+  return "torre" as const;
+}
+
+function getCondominiumLayoutLimits(input: {
+  towerCount: number | null;
+  floorsPerTower: number | null;
+  floorStart: number | null;
+}) {
+  if (
+    typeof input.towerCount !== "number" ||
+    typeof input.floorsPerTower !== "number" ||
+    typeof input.floorStart !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    floorMin: input.floorStart,
+    floorMax: input.floorStart + input.floorsPerTower - 1,
+    towerTokens: input.towerCount,
+  };
+}
+
+function assertUnitMatchesCondominiumLayout(input: {
+  blockType: "torre" | "bloco";
+  blockLetter: string;
+  floor: number;
+}, layout: {
+  towerCount: number | null;
+  floorsPerTower: number | null;
+  floorStart: number | null;
+  towerNaming: "letters" | "numbers" | null;
+  towerPrefix: string | null;
+}) {
+  const limits = getCondominiumLayoutLimits({
+    towerCount: layout.towerCount,
+    floorsPerTower: layout.floorsPerTower,
+    floorStart: layout.floorStart,
+  });
+
+  if (limits) {
+    if (input.floor < limits.floorMin || input.floor > limits.floorMax) {
+      throw new Error(
+        `O andar deve ficar entre ${limits.floorMin} e ${limits.floorMax}, conforme a configuração inicial do condomínio.`,
+      );
+    }
+  }
+
+  const expectedBlockType = getConfiguredBlockType(layout.towerPrefix);
+  if (layout.towerPrefix && input.blockType !== expectedBlockType) {
+    throw new Error(
+      `Este condomínio foi configurado com prefixo ${layout.towerPrefix.trim()}. Use esse prefixo para editar a unidade.`,
+    );
+  }
+
+  if (layout.towerCount && layout.towerNaming === "letters") {
+    const allowedTokens = buildTowerTokenSet(layout.towerCount, layout.towerNaming);
+    if (!allowedTokens.has(input.blockLetter.toUpperCase())) {
+      const maxToken = getTowerToken(layout.towerCount - 1, layout.towerNaming);
+      throw new Error(
+        `A letra da torre/bloco deve ficar entre A e ${maxToken}, conforme a configuração inicial do condomínio.`,
+      );
+    }
+  }
 }
 
 function buildUnitLabel(input: {
@@ -1217,18 +1306,45 @@ export async function createUnit(formData: FormData) {
   try {
     const parsed = createUnitSchema.parse({
       condominiumId: formData.get("condominiumId"),
-      label: formData.get("label"),
-      block: formData.get("block") || undefined,
-      floor: formData.get("floor") || undefined,
+      unitNumber: formData.get("unitNumber"),
+      blockType: formData.get("blockType"),
+      blockLetter: formData.get("blockLetter"),
+      floor: formData.get("floor"),
     });
 
-    await requireAuthorizedCondominium(parsed.condominiumId);
+    const { activeCondominium } = await requireAuthorizedCondominium(parsed.condominiumId);
     const supabase = createSupabaseAdminClient();
+    const { data: condominium, error: condominiumError } = await supabase
+      .from("condominiums")
+      .select("tower_count, floors_per_tower, floor_start, tower_naming, tower_prefix")
+      .eq("id", activeCondominium.id)
+      .maybeSingle();
+
+    if (condominiumError) {
+      throw new Error(`Falha ao carregar a configuracao do condominio: ${condominiumError.message}`);
+    }
+
+    assertUnitMatchesCondominiumLayout(
+      {
+        blockType: parsed.blockType,
+        blockLetter: parsed.blockLetter,
+        floor: parsed.floor,
+      },
+      {
+        towerCount: condominium?.tower_count ?? null,
+        floorsPerTower: condominium?.floors_per_tower ?? null,
+        floorStart: condominium?.floor_start ?? null,
+        towerNaming: condominium?.tower_naming ?? null,
+        towerPrefix: condominium?.tower_prefix ?? null,
+      },
+    );
+
+    const block = `${parsed.blockType === "torre" ? "Torre" : "Bloco"} ${parsed.blockLetter.toUpperCase()}`;
     const { error } = await supabase.from("units").insert({
       condominium_id: parsed.condominiumId,
-      label: parsed.label,
-      block: parsed.block || null,
-      floor: parsed.floor || null,
+      label: String(parsed.unitNumber),
+      block,
+      floor: String(parsed.floor),
     });
 
     if (error) {
@@ -1284,6 +1400,24 @@ export async function createUnitsBatch(formData: FormData) {
     }
 
     const towerPrefix = parsed.towerPrefix?.trim() || "Torre";
+    const supabase = createSupabaseAdminClient();
+    const { error: condominiumUpdateError } = await supabase
+      .from("condominiums")
+      .update({
+        tower_count: parsed.towersCount,
+        floors_per_tower: parsed.floorsPerTower,
+        units_per_floor: parsed.unitsPerFloor,
+        tower_naming: parsed.towerNaming,
+        tower_prefix: towerPrefix,
+        floor_start: parsed.floorStart,
+        unit_pattern: parsed.unitPattern,
+      })
+      .eq("id", parsed.condominiumId);
+
+    if (condominiumUpdateError) {
+      throw new Error(`Falha ao salvar a configuracao inicial do condominio: ${condominiumUpdateError.message}`);
+    }
+
     const unitRows = [];
 
     for (let towerIndex = 0; towerIndex < parsed.towersCount; towerIndex += 1) {
@@ -1310,7 +1444,6 @@ export async function createUnitsBatch(formData: FormData) {
       }
     }
 
-    const supabase = createSupabaseAdminClient();
     const labels = unitRows.map((item) => item.label);
     const { data: existing, error: existingError } = await supabase
       .from("units")
@@ -1366,19 +1499,46 @@ export async function updateUnit(formData: FormData) {
     const parsed = updateUnitSchema.parse({
       condominiumId: formData.get("condominiumId"),
       id: formData.get("id"),
-      label: formData.get("label"),
-      block: formData.get("block") || undefined,
-      floor: formData.get("floor") || undefined,
+      unitNumber: formData.get("label"),
+      blockType: formData.get("blockType"),
+      blockLetter: formData.get("blockLetter"),
+      floor: formData.get("floor"),
     });
 
-    await requireAuthorizedCondominium(parsed.condominiumId);
+    const { activeCondominium } = await requireAuthorizedCondominium(parsed.condominiumId);
     const supabase = createSupabaseAdminClient();
+    const { data: condominium, error: condominiumError } = await supabase
+      .from("condominiums")
+      .select("tower_count, floors_per_tower, floor_start, tower_naming, tower_prefix")
+      .eq("id", activeCondominium.id)
+      .maybeSingle();
+
+    if (condominiumError) {
+      throw new Error(`Falha ao carregar a configuracao do condominio: ${condominiumError.message}`);
+    }
+
+    assertUnitMatchesCondominiumLayout(
+      {
+        blockType: parsed.blockType,
+        blockLetter: parsed.blockLetter,
+        floor: parsed.floor,
+      },
+      {
+        towerCount: condominium?.tower_count ?? null,
+        floorsPerTower: condominium?.floors_per_tower ?? null,
+        floorStart: condominium?.floor_start ?? null,
+        towerNaming: condominium?.tower_naming ?? null,
+        towerPrefix: condominium?.tower_prefix ?? null,
+      },
+    );
+
+    const block = `${parsed.blockType === "torre" ? "Torre" : "Bloco"} ${parsed.blockLetter.toUpperCase()}`;
     const { error } = await supabase
       .from("units")
       .update({
-        label: parsed.label,
-        block: parsed.block || null,
-        floor: parsed.floor || null,
+        label: String(parsed.unitNumber),
+        block,
+        floor: String(parsed.floor),
       })
       .eq("id", parsed.id)
       .eq("condominium_id", parsed.condominiumId);

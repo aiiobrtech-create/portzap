@@ -1,6 +1,6 @@
 import { FileDown, Package } from "lucide-react";
 import { resolveCondominiumContext } from "@/lib/condominiums";
-import { getDeliveryMetrics, listRecentDeliveries } from "@/lib/deliveries";
+import { getDeliveryMetrics } from "@/lib/deliveries";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +25,6 @@ const exportItems = [
   },
 ] as const;
 
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(date));
-}
-
 export default async function ReportsPage() {
   const { activeCondominium } = await resolveCondominiumContext();
 
@@ -45,10 +38,7 @@ export default async function ReportsPage() {
     );
   }
 
-  const [metrics, deliveries] = await Promise.all([
-    getDeliveryMetrics(activeCondominium.id),
-    listRecentDeliveries(12, { condominiumId: activeCondominium.id }),
-  ]);
+  const metrics = await getDeliveryMetrics(activeCondominium.id);
 
   return (
     <main className="pageShell">
@@ -100,39 +90,6 @@ export default async function ReportsPage() {
         </div>
       </section>
 
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Últimas encomendas</h2>
-          </div>
-        </div>
-
-        <div className="stackGrid notificationList">
-          {deliveries.map((delivery) => (
-            <article key={delivery.id} className="notificationItem">
-              <div className="notificationTop">
-                <div>
-                  <span className={`statusBadge status-${delivery.status}`}>
-                    {delivery.status === "pending" && "Pendente"}
-                    {delivery.status === "notified" && "Avisado"}
-                    {delivery.status === "picked_up" && "Retirado"}
-                    {delivery.status === "cancelled" && "Cancelado"}
-                  </span>
-                  <h3>{delivery.resident_name}</h3>
-                  <p>
-                    Unidade {delivery.apartment}
-                    {delivery.carrier ? ` • ${delivery.carrier}` : ""}
-                  </p>
-                </div>
-                <div className="historyStamp">
-                  <FileDown size={16} />
-                  <span>{formatDate(delivery.received_at)}</span>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }

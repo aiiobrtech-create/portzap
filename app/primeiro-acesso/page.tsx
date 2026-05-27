@@ -1,3 +1,4 @@
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { completeFirstAccess } from "@/app/security-actions";
 import { PhoneInput, SlugInput } from "@/app/form-fields";
 import { requireAuthorizedCondominium } from "@/lib/operator-auth";
@@ -31,6 +32,7 @@ export default async function FirstAccessPage({ searchParams }: FirstAccessPageP
           <p>{feedbackMessage}</p>
         </section>
       ) : null}
+      <FeedbackQueryCleanup />
 
       <section className="panel">
         <div className="panelHeader">

@@ -1,7 +1,7 @@
 import "server-only";
 
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { DeliveryStatus } from "@/lib/deliveries";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export type HistoryStatusFilter = DeliveryStatus | "all";
 
@@ -19,6 +19,8 @@ export type DeliveryHistoryEvent = {
     resident_name: string;
     apartment: string;
     carrier: string | null;
+    package_photo_url?: string | null;
+    internal_notes: string | null;
     status: DeliveryStatus;
   } | null;
 };
@@ -28,6 +30,8 @@ type RawDelivery = {
   resident_name: string;
   apartment: string;
   carrier: string | null;
+  package_photo_url?: string | null;
+  internal_notes: string | null;
   status: DeliveryStatus;
   created_at: string;
   received_at: string;
@@ -43,7 +47,7 @@ export async function listDeliveryHistoryEvents(input: {
   let query = supabase
     .from("delivery_status_history")
     .select(
-      "id, delivery_id, from_status, to_status, change_reason, actor_label, metadata, created_at, deliveries!inner(id, resident_name, apartment, carrier, status, condominium_id)",
+      "id, delivery_id, from_status, to_status, change_reason, actor_label, metadata, created_at, deliveries!inner(id, resident_name, apartment, carrier, package_photo_url, internal_notes, status, condominium_id)",
     )
     .eq("deliveries.condominium_id", input.condominiumId)
     .order("created_at", { ascending: false })
@@ -58,7 +62,7 @@ export async function listDeliveryHistoryEvents(input: {
     (() => {
       let deliveriesQuery = supabase
         .from("deliveries")
-        .select("id, resident_name, apartment, carrier, status, created_at, received_at")
+        .select("id, resident_name, apartment, carrier, package_photo_url, internal_notes, status, created_at, received_at")
         .eq("condominium_id", input.condominiumId)
         .order("received_at", { ascending: false })
         .limit(limit);
@@ -100,6 +104,8 @@ export async function listDeliveryHistoryEvents(input: {
             resident_name: delivery.resident_name,
             apartment: delivery.apartment,
             carrier: delivery.carrier,
+            package_photo_url: delivery.package_photo_url,
+            internal_notes: delivery.internal_notes,
             status: delivery.status as DeliveryStatus,
           }
         : null,
@@ -128,11 +134,14 @@ export async function listDeliveryHistoryEvents(input: {
         resident_name: delivery.resident_name,
         apartment: delivery.apartment,
         carrier: delivery.carrier,
+        package_photo_url: delivery.package_photo_url,
+        internal_notes: delivery.internal_notes,
         status: delivery.status,
       },
     }));
 
   return [...events, ...snapshotEvents]
+    .filter((event) => event.from_status !== event.to_status || event.change_reason === "delivery_snapshot")
     .sort((first, second) => Date.parse(second.created_at) - Date.parse(first.created_at))
     .slice(0, limit);
 }

@@ -1,4 +1,5 @@
 import { NewDeliveryForm } from "@/app/nova-encomenda/new-delivery-form";
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { resolveCondominiumContext } from "@/lib/condominiums";
 import { listResidents, listUnits } from "@/lib/residents";
 
@@ -45,6 +46,7 @@ export default async function NewDeliveryPage({ searchParams }: NewDeliveryPageP
               <p>{feedbackMessage}</p>
             </section>
           ) : null}
+          <FeedbackQueryCleanup />
           <section className="panel formPanel">
             <NewDeliveryForm condominiumId={activeCondominium.id} residents={residents} units={units} />
           </section>

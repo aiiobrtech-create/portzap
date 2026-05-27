@@ -1,3 +1,4 @@
+import { FeedbackQueryCleanup } from "@/app/feedback-query-cleanup";
 import { redirect } from "next/navigation";
 import { completeInitialPassword } from "@/app/security-actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -49,6 +50,7 @@ export default async function SetPasswordPage({ searchParams }: SetPasswordPageP
             <p>{feedbackMessage}</p>
           </section>
         ) : null}
+        <FeedbackQueryCleanup />
 
         <form action={completeInitialPassword} className="deliveryForm">
           <label className="field">

@@ -1,6 +1,6 @@
 git status
 git add .
-git commit -m "leitura qr"
+git commit -m "erro schema"
 git push origin master
 
 

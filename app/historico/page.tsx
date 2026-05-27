@@ -1,7 +1,7 @@
 import { Bell, Clock3, Filter, XCircle } from "lucide-react";
 import { DropdownSelect } from "@/app/dropdown-select";
 import { resolveCondominiumContext } from "@/lib/condominiums";
-import { deliveryStatuses, type DeliveryStatus } from "@/lib/deliveries";
+import { deliveryStatuses, getDeliveryPackagePhotoUrl, type DeliveryStatus } from "@/lib/deliveries";
 import { listDeliveryHistoryEvents } from "@/lib/history";
 import { listNotificationAttempts } from "@/lib/notifications";
 
@@ -14,6 +14,35 @@ function getSingleParam(value: string | string[] | undefined) {
 }
 
 type HistoryStatusFilter = DeliveryStatus | "all";
+type HistoryTrailItem =
+  | {
+      id: string;
+      kind: "status";
+      timestamp: string;
+      status: DeliveryStatus;
+      actorLabel: string | null;
+    }
+  | {
+      id: string;
+      kind: "notification";
+      timestamp: string;
+      status: string;
+      errorMessage: string | null;
+    };
+
+type HistoryDeliveryGroup = {
+  deliveryId: string;
+  delivery: {
+    resident_name: string;
+    apartment: string;
+    carrier: string | null;
+    package_photo_url?: string | null;
+    internal_notes: string | null;
+  } | null;
+  latestAt: string;
+  latestStatus: DeliveryStatus | null;
+  items: HistoryTrailItem[];
+};
 
 const historyStatusFilters = [...deliveryStatuses, "all"] as const;
 
@@ -26,6 +55,34 @@ function formatDate(date: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(date));
+}
+
+function renderStatusLabel(status: DeliveryStatus | null) {
+  if (status === "pending") return "Pendente";
+  if (status === "notified") return "Avisado";
+  if (status === "picked_up") return "Retirado";
+  if (status === "cancelled") return "Cancelado";
+  return "Sem status anterior";
+}
+
+function renderNotificationStatus(status: string) {
+  if (status === "sent") return "Enviado";
+  if (status === "delivered") return "Entregue";
+  if (status === "read") return "Lido";
+  if (status === "failed") return "Falhou";
+  if (status === "pending") return "Pendente";
+  return status;
+}
+
+function renderOperatorName(actorLabel: string) {
+  const trimmedLabel = actorLabel.trim();
+  const emailSuffixStart = trimmedLabel.lastIndexOf(" (");
+
+  if (emailSuffixStart > 0 && trimmedLabel.endsWith(")")) {
+    return trimmedLabel.slice(0, emailSuffixStart);
+  }
+
+  return trimmedLabel;
 }
 
 export default async function HistoryPage({ searchParams }: HistoryPageProps) {
@@ -47,13 +104,98 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
       ])
     : [[], []];
 
-  function renderStatusLabel(status: DeliveryStatus | null) {
-    if (status === "pending") return "Pendente";
-    if (status === "notified") return "Avisado";
-    if (status === "picked_up") return "Retirado";
-    if (status === "cancelled") return "Cancelado";
-    return "Sem status anterior";
-  }
+  const groupedDeliveries = new Map<string, HistoryDeliveryGroup>();
+
+  const ensureGroup = (
+    deliveryId: string,
+    delivery: HistoryDeliveryGroup["delivery"],
+    timestamp: string,
+  ) => {
+    const existing = groupedDeliveries.get(deliveryId);
+
+    if (existing) {
+      if (!existing.delivery && delivery) {
+        existing.delivery = delivery;
+      }
+
+      if (Date.parse(timestamp) > Date.parse(existing.latestAt)) {
+        existing.latestAt = timestamp;
+      }
+
+      return existing;
+    }
+
+    const created = {
+      deliveryId,
+      delivery,
+      latestAt: timestamp,
+      latestStatus: null as DeliveryStatus | null,
+      items: [] as HistoryTrailItem[],
+    };
+
+    groupedDeliveries.set(deliveryId, created);
+    return created;
+  };
+
+  records.forEach((record) => {
+    const delivery = record.delivery
+      ? {
+          resident_name: record.delivery.resident_name,
+          apartment: record.delivery.apartment,
+          carrier: record.delivery.carrier,
+          package_photo_url: record.delivery.package_photo_url,
+          internal_notes: record.delivery.internal_notes,
+        }
+      : null;
+    const group = ensureGroup(record.delivery_id, delivery, record.created_at);
+    group.items.push({
+      id: record.id,
+      kind: "status",
+      timestamp: record.created_at,
+      status: record.to_status,
+      actorLabel: record.actor_label,
+    });
+    if (!group.latestStatus || Date.parse(record.created_at) >= Date.parse(group.latestAt)) {
+      group.latestStatus = record.to_status;
+    }
+  });
+
+  notificationAttempts.forEach((attempt) => {
+    const delivery = attempt.delivery
+      ? {
+          resident_name: attempt.delivery.resident_name,
+          apartment: attempt.delivery.apartment,
+          carrier: attempt.delivery.carrier,
+          package_photo_url: null,
+          internal_notes: null,
+        }
+      : null;
+    const existing = groupedDeliveries.get(attempt.delivery_id);
+
+    if (activeStatus !== "all" && !existing) {
+      return;
+    }
+
+    const group = ensureGroup(attempt.delivery_id, delivery, attempt.attempted_at);
+    group.items.push({
+      id: attempt.id,
+      kind: "notification",
+      timestamp: attempt.attempted_at,
+      status: attempt.status,
+      errorMessage: attempt.error_message,
+    });
+  });
+
+  const groupedList = Array.from(groupedDeliveries.values())
+    .map((group) => ({
+      ...group,
+      items: group.items.sort((first, second) => Date.parse(second.timestamp) - Date.parse(first.timestamp)),
+      latestStatus:
+        group.latestStatus ??
+        group.items.find((item) => item.kind === "status")?.status ??
+        null,
+    }))
+    .sort((first, second) => Date.parse(second.latestAt) - Date.parse(first.latestAt));
 
   return (
     <main className="pageShell">
@@ -87,109 +229,96 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
             </button>
           </form>
 
-          <div className="panel">
-            <div className="panelHeader">
-              <div>
-                <h2>Notificações</h2>
-              </div>
-            </div>
-
-            {notificationAttempts.length === 0 ? (
-              <div className="emptyState">
-                <strong>Nenhuma tentativa registrada</strong>
-              </div>
-            ) : (
-              <div className="historyCompactList notificationList">
-                {notificationAttempts.map((attempt) => (
-                  <details key={attempt.id} className="historyDisclosure notificationItem">
-                    <summary className="historySummary">
-                      <span className="historySummaryMain">
-                        <span className={`statusBadge notificationStatus-${attempt.status}`}>
-                          {attempt.status === "sent" && "Enviado"}
-                          {attempt.status === "delivered" && "Entregue"}
-                          {attempt.status === "read" && "Lido"}
-                          {attempt.status === "failed" && "Falhou"}
-                          {attempt.status === "pending" && "Pendente"}
-                        </span>
-                        <span className="historySummaryTitle">
-                          {attempt.delivery?.resident_name ?? "Morador não identificado"}
-                        </span>
-                        <span className="historySummaryMeta">
-                          Unidade {attempt.delivery?.apartment ?? "não informada"}
-                          {attempt.delivery?.carrier ? ` • ${attempt.delivery.carrier}` : ""}
-                        </span>
-                      </span>
-                      <span className="historyStamp">
-                        {attempt.status === "failed" ? <XCircle size={16} /> : <Bell size={16} />}
-                        <span>{formatDate(attempt.attempted_at)}</span>
-                      </span>
-                    </summary>
-
-                    <div className="historyDetailInline">
-                      <span>
-                        <strong>Data</strong>
-                        {formatDate(attempt.attempted_at)}
-                      </span>
-                      {attempt.status === "failed" ? (
-                        <span className="historyDetailExtra">
-                          <strong>Erro</strong>
-                          {attempt.error_message ?? "Falha ao enviar notificação"}
-                        </span>
-                      ) : null}
-                    </div>
-                  </details>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {records.length === 0 ? (
+          {groupedList.length === 0 ? (
             <div className="emptyState">
               <strong>Nenhuma movimentacao encontrada</strong>
             </div>
           ) : (
             <div className="historyCompactList">
-              {records.map((record) => {
+              {groupedList.map((group) => {
+                const packagePhotoUrl = group.delivery
+                  ? getDeliveryPackagePhotoUrl(group.delivery)
+                  : null;
+                const summaryStatus = group.latestStatus ?? "pending";
+
                 return (
-                  <details key={record.id} className="historyDisclosure historyCard">
+                  <details key={group.deliveryId} className="historyDisclosure historyCard">
                     <summary className="historySummary">
                       <span className="historySummaryMain">
-                    <span className={`statusBadge status-${record.to_status}`}>
-                      {renderStatusLabel(record.to_status)}
-                    </span>
+                        <span className={`statusBadge status-${summaryStatus}`}>
+                          {renderStatusLabel(group.latestStatus)}
+                        </span>
                         <span className="historySummaryTitle">
-                          {record.delivery?.resident_name ?? "Encomenda sem vínculo"}
+                          {group.delivery?.resident_name ?? "Encomenda sem vínculo"}
                         </span>
                         <span className="historySummaryMeta">
-                      Unidade {record.delivery?.apartment ?? "não informada"}
-                      {record.delivery?.carrier ? ` • ${record.delivery.carrier}` : ""}
+                          Unidade {group.delivery?.apartment ?? "não informada"}
+                          {group.delivery?.carrier ? ` • ${group.delivery.carrier}` : ""}
                         </span>
                       </span>
                       <span className="historyStamp">
-                    <Clock3 size={16} />
-                    <span>{formatDate(record.created_at)}</span>
+                        <Clock3 size={16} />
+                        <span>{formatDate(group.latestAt)}</span>
                       </span>
                     </summary>
 
-                    <div className="historyDetailInline">
-                      <span>
-                        <strong>Data</strong>
-                        {formatDate(record.created_at)}
-                      </span>
-                      <span>
-                        <strong>Forma de retirada</strong>
-                        {record.to_status === "picked_up"
-                          ? "QR ou código"
-                          : record.to_status === "cancelled"
-                            ? "Cancelada"
-                            : "Pendente"}
-                      </span>
-                      {record.actor_label ? (
-                        <span>
-                          <strong>Operador</strong>
-                          {record.actor_label}
-                        </span>
+                    <div className="historyDetailLayout">
+                      {packagePhotoUrl ? (
+                        <div className="historyPhotoPanel">
+                          <strong>Foto da encomenda</strong>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={packagePhotoUrl}
+                            alt={`Foto completa da encomenda de ${group.delivery?.resident_name ?? "registro"}`}
+                          />
+                        </div>
                       ) : null}
+
+                      <div className="historyTimelineWrap">
+                        {group.items.map((item) => (
+                          <div key={item.id} className="historyTimelineItem">
+                            <div className="historyTimelineMarker" aria-hidden="true">
+                              {item.kind === "notification" ? (
+                                item.status === "failed" ? (
+                                  <XCircle size={12} />
+                                ) : (
+                                  <Bell size={12} />
+                                )
+                              ) : (
+                                <Clock3 size={12} />
+                              )}
+                            </div>
+                            <div className="historyTimelineContent">
+                              <p className="historyDetailLine">
+                                <span className="historyDetailDate">Data {formatDate(item.timestamp)}</span>
+                                <span className="historyDetailEvent">
+                                  {item.kind === "status"
+                                    ? `Movimentação ${
+                                        item.status === "picked_up"
+                                          ? "QR ou código"
+                                          : item.status === "cancelled"
+                                            ? "Cancelada"
+                                            : item.status === "notified"
+                                              ? "Notificação enviada"
+                                              : "Pendente"
+                                      }`
+                                    : `Notificação ${renderNotificationStatus(item.status)}`}
+                                </span>
+                                {item.kind === "status" && item.actorLabel ? (
+                                  <span className="historyDetailOperator">
+                                    Operador {renderOperatorName(item.actorLabel)}
+                                  </span>
+                                ) : null}
+                              </p>
+                              {item.kind === "notification" && item.errorMessage ? (
+                                <p className="historyDetailLine historyDetailError">
+                                  Erro {item.errorMessage}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </details>
                 );

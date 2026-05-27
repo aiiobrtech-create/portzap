@@ -16,6 +16,7 @@ type NewDeliveryFormProps = {
     phone: string | null;
     email: string | null;
     unit_id: string | null;
+    is_active: boolean;
     units?: { label: string } | null;
   }>;
   units: Array<{
@@ -37,11 +38,19 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
   const initialUnitId = values?.unitId ?? "";
   const [selectedUnitId, setSelectedUnitId] = useState(initialUnitId);
   const [linkResidentToUnit, setLinkResidentToUnit] = useState(values?.linkResidentToUnit ?? true);
+  const [selectedResidentId, setSelectedResidentId] = useState(values?.residentId ?? "");
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
-  const selectedResident = useMemo(
-    () => residents.find((resident) => resident.unit_id === selectedUnitId) ?? null,
+  const selectedResidents = useMemo(
+    () => residents.filter((resident) => resident.unit_id === selectedUnitId),
     [residents, selectedUnitId],
   );
+  const selectedResident = useMemo(() => {
+    if (selectedResidentId) {
+      return selectedResidents.find((resident) => resident.id === selectedResidentId) ?? null;
+    }
+
+    return selectedResidents[0] ?? null;
+  }, [selectedResidentId, selectedResidents]);
   const selectedRecordKey = selectedResident?.id ?? (selectedUnitId || "manual");
   const residentNameValue = values?.residentName || selectedResident?.full_name || "";
   const residentPhoneValue = values?.residentPhone || selectedResident?.phone || "";
@@ -52,7 +61,26 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
     <form key={state.formKey ?? "initial"} action={formAction} className="deliveryForm">
       <input type="hidden" name="condominiumId" value={condominiumId} />
       <input type="hidden" name="redirectPath" value="/nova-encomenda" />
-      <input type="hidden" name="residentId" value={linkResidentToUnit ? selectedResident?.id ?? "" : ""} />
+      {linkResidentToUnit && selectedResidents.length > 1 ? (
+        <label className="field">
+          <span>Morador vinculado</span>
+          <DropdownSelect
+            name="residentId"
+            value={selectedResident?.id ?? ""}
+            placeholder="Selecione um morador"
+            onValueChange={setSelectedResidentId}
+            options={[
+              { value: "", label: "Selecione um morador" },
+              ...selectedResidents.map((resident) => ({
+                value: resident.id,
+                label: resident.full_name,
+              })),
+            ]}
+          />
+        </label>
+      ) : (
+        <input type="hidden" name="residentId" value={linkResidentToUnit ? selectedResident?.id ?? "" : ""} />
+      )}
 
       {state.tone === "error" && state.message ? (
         <section className="feedbackBanner feedbackBannerError" aria-live="polite">
@@ -80,11 +108,15 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
 
       {selectedUnit ? (
         <div className="inlineMutedPill">
-          {selectedResident
-            ? `Morador vinculado: ${selectedResident.full_name}`
-            : "Unidade sem morador cadastrado"}
+          {selectedResidents.length === 0
+            ? "Unidade sem morador cadastrado"
+            : selectedResidents.length === 1
+              ? `Morador vinculado: ${selectedResidents[0].full_name}`
+              : `Moradores vinculados: ${selectedResidents.length}`}
         </div>
       ) : null}
+
+      {selectedResidents.length > 1 ? <div className="inlineMutedPill">Selecione o morador vinculado abaixo.</div> : null}
 
       <div className="fieldRow">
         <label className="field">
@@ -132,7 +164,7 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
           />
         </label>
 
-        <label className="checkField">
+        <label className="field checkField">
           <input
             type="checkbox"
             name="linkResidentToUnit"
@@ -173,8 +205,14 @@ export function NewDeliveryForm({ condominiumId, residents, units }: NewDelivery
               { value: "cancelled", label: "Cancelado" },
             ]}
           />
-          <small className="fieldHint">Avisado envia o WhatsApp com o QR/código de retirada automaticamente.</small>
         </label>
+      </div>
+
+      <div className="fieldHintRow" aria-hidden="true">
+        <div />
+        <small className="fieldHint">
+          Avisado envia o WhatsApp com o QR/código de retirada automaticamente.
+        </small>
       </div>
 
       <label className="field">

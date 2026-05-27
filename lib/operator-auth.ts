@@ -28,6 +28,13 @@ export type AuthorizedCondominium = {
   name: string;
   slug: string | null;
   contact_phone: string | null;
+  tower_count: number | null;
+  floors_per_tower: number | null;
+  units_per_floor: number | null;
+  tower_naming: "letters" | "numbers" | null;
+  tower_prefix: string | null;
+  floor_start: number | null;
+  unit_pattern: "compact-floor-unit" | "floor-sequence" | "padded-floor-sequence" | null;
   is_active: boolean;
   membershipId: string;
   role: OperatorRole;
@@ -55,12 +62,19 @@ function mapMemberships(
     id: string;
     role: string;
     is_default: boolean;
-    condominiums:
+      condominiums:
       | {
           id: string;
           name: string;
           slug: string | null;
           contact_phone: string | null;
+          tower_count: number | null;
+          floors_per_tower: number | null;
+          units_per_floor: number | null;
+          tower_naming: "letters" | "numbers" | null;
+          tower_prefix: string | null;
+          floor_start: number | null;
+          unit_pattern: "compact-floor-unit" | "floor-sequence" | "padded-floor-sequence" | null;
           is_active: boolean;
         }
       | Array<{
@@ -68,6 +82,13 @@ function mapMemberships(
           name: string;
           slug: string | null;
           contact_phone: string | null;
+          tower_count: number | null;
+          floors_per_tower: number | null;
+          units_per_floor: number | null;
+          tower_naming: "letters" | "numbers" | null;
+          tower_prefix: string | null;
+          floor_start: number | null;
+          unit_pattern: "compact-floor-unit" | "floor-sequence" | "padded-floor-sequence" | null;
           is_active: boolean;
         }>
       | null;
@@ -88,6 +109,13 @@ function mapMemberships(
         name: condominium.name,
         slug: condominium.slug,
         contact_phone: condominium.contact_phone,
+        tower_count: condominium.tower_count,
+        floors_per_tower: condominium.floors_per_tower,
+        units_per_floor: condominium.units_per_floor,
+        tower_naming: condominium.tower_naming,
+        tower_prefix: condominium.tower_prefix,
+        floor_start: condominium.floor_start,
+        unit_pattern: condominium.unit_pattern,
         is_active: condominium.is_active,
         membershipId: membership.id,
         role: membership.role as OperatorRole,
@@ -225,7 +253,9 @@ export const getCurrentOperatorContext = cache(async (): Promise<OperatorContext
     const adminClient = createSupabaseAdminClient();
     const { data: memberships, error: membershipError } = await adminClient
       .from("operator_memberships")
-      .select("id, role, is_default, condominiums!inner(id, name, slug, contact_phone, is_active)")
+      .select(
+        "id, role, is_default, condominiums!inner(id, name, slug, contact_phone, tower_count, floors_per_tower, units_per_floor, tower_naming, tower_prefix, floor_start, unit_pattern, is_active)",
+      )
       .eq("user_id", profile.id)
       .eq("is_active", true);
 
